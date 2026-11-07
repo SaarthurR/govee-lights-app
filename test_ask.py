@@ -19,7 +19,7 @@ class AskChecks(unittest.TestCase):
         app.st.clear(); app.themes.clear(); app.schedule.clear()
         if hasattr(app, "lights"):
             app.lights.clear()
-            app.add_light("a", "First"); app.add_light("b", "Second")
+            app.add_light("a", "First", "H805D"); app.add_light("b", "Second", "H805D")
         else:
             for k in app.LIGHTS:
                 app.st[k] = dict(app.DEFAULT, history=[], frame=[[0, 0, 0]] * app.N)
@@ -117,8 +117,8 @@ class AskChecks(unittest.TestCase):
             with patch.object(app.subprocess, "run", return_value=SimpleNamespace(stdout=raw, returncode=0)):
                 with self.assertRaises(ValueError): app.ask_claude(self.keys, "test")
         app.st[self.keys[0]]["bulbs"] = [[1, 2, 3]] * 84
-        self.assertNotIn('"bulbs"', app.ask_prompt(self.keys, "dim it"))
-        self.assertIn('"bulbs"', app.ask_prompt(self.keys, "paint bulb 1"))
+        self.assertNotIn("bulbs", json.loads(app.ask_prompt(self.keys, "dim it"))["lights"][self.keys[0]]["look"])
+        self.assertIn("bulbs", json.loads(app.ask_prompt(self.keys, "paint bulb 1"))["lights"][self.keys[0]]["look"])
         app.chat.update(at=0, turns=[["old", "old", False]])
         self.assertEqual(app.chat_view()["turns"], [])
 

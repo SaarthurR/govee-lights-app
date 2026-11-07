@@ -82,6 +82,7 @@
   #timerSheet h2 { font-size:17px; font-weight:600; text-transform:none; letter-spacing:-.01em; color:var(--ink); }
   .summary { font-size:17px; font-weight:600; letter-spacing:-.01em; line-height:1.35; }
   .summary small { display:block; font-size:14px; font-weight:400; color:var(--mute); margin-top:4px; }
+  body.basic [data-advanced] { display:none !important; }
   [hidden] { display:none !important; }
   .sub { text-transform:none; letter-spacing:0; font-weight:400; }
   .controls { display:flex; align-items:flex-end; gap:16px; }
@@ -314,12 +315,13 @@
 
   <div class="card">
     <div class="head">
-      <h2>Live <span class="sub">· tap bulbs to recolor</span></h2>
+      <h2>Live <span class="sub" data-advanced>· tap bulbs to recolor</span></h2>
       <button class="linkbtn" id="undo" onclick="undo()" title="Go back to the last look" disabled><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo</button>
     </div>
     <div class="alert" id="alert" role="alert" hidden><span id="alertText"></span><button class="btn" id="alertFix" onclick="reconnect(this)">Reconnect</button></div>
-    <div class="strip" id="strip"></div>
-    <div class="paintbar" id="paintbar">
+    <p class="hint" id="basicNote" hidden>This light gets on/off, brightness, color and schedules. Per-bulb effects are only on supported strips.</p>
+    <div class="strip" id="strip" data-advanced></div>
+    <div class="paintbar" id="paintbar" data-advanced>
       <span id="selCount" class="selcount"></span>
       <input type="color" id="pick" value="#ffffff" aria-label="Paint color">
       <button class="btn dark" onclick="paint()">Paint them</button>
@@ -358,7 +360,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-advanced>
     <h2>Effects <span class="sub">· uses your colors</span></h2>
     <div class="row fx" style="gap:16px;margin:-4px 0 12px">
       <div class="ctl grow"><label class="small" for="speed">Speed <b id="speedVal" aria-hidden="true"></b></label><input type="range" id="speed" min="0.1" max="4" step="0.05" value="1"></div>
@@ -441,7 +443,7 @@
 </main>
 <script>
 let govee = {connected:false, devices:[]}, sceneRead = 0;
-let N = 84, light = '', state = null, sel = new Set(), last = null, clips = [];
+let N = 0, light = '', state = null, sel = new Set(), last = null, clips = [];
 const $ = id => document.getElementById(id);
 const hex = h => [1,3,5].map(i => parseInt(h.slice(i,i+2),16));
 const toHex = c => '#' + c.map(x => Math.round(x).toString(16).padStart(2,'0')).join('');
@@ -451,6 +453,7 @@ const CHIPS = ['Slower', 'Faster', 'More gold', 'More silver', 'Dimmer', 'Surpri
 const ids = () => state ? Object.keys(state.lights) : [];
 const lead = () => light === 'all' ? ids()[0] : light;  // "All" shows and edits from the first light
 const cur = () => state && state.lights[lead()];
+const advanced = () => (light === 'all' ? ids() : [lead()]).every(k => state?.lights[k]?.capabilities.razer);
 const nameOf = k => (state && state.lights[k] || {}).name || '';
 const and = a => new Intl.ListFormat('en', {type:'conjunction'}).format(a);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -541,6 +544,9 @@ const offsetOf = spec => +(spec.slice(6) || 0);
 const sunsetSpec = m => m ? `sunset${m > 0 ? '+' : ''}${m}` : 'sunset';
 const offsetWords = m => m ? `Sunset ${m < 0 ? '−' : '+'}${Math.abs(m)} min` : 'Sunset';
 const timeOf = spec => !spec.startsWith('sunset') ? spec : sunsetToday ? hhmm((mins(sunsetToday) + offsetOf(spec) + 1440) % 1440) : null;
+const availableLook = n => advanced() || [...document.querySelectorAll('[data-look]')].some(b => {
+  const p = JSON.parse(b.dataset.look); return b.textContent === n && p.effect === 'solid' && p.colors?.length === 1;
+});
 const hasLook = n => lookNames.themes.includes(n) || lookNames.presets.includes(n);
 // as on the server: an off timer before every on timer of its light ends the evening before ("Sat, Sun nights")
 const isNight = (t, ts) => { const ons = ts.filter(o => o.action === 'on' && timeOf(o.time)).map(o => mins(timeOf(o.time))); return t.action === 'off' && ons.length > 0 && mins(timeOf(t.time) || '00:00') < Math.min(...ons); };
@@ -635,7 +641,7 @@ function openTimer(k = light, t) {
   $('timerTitle').textContent = (t ? 'Edit timer' : 'Add timer') + (k === 'all' ? ' · all lights' : ids().length > 1 ? ' · ' + nameOf(k) : '');
   $('delTimer').hidden = !t;
   const group = (name, items) => { const g = document.createElement('optgroup'); g.label = name; g.append(...items.map(n => new Option(n, n))); return items.length ? [g] : []; };
-  $('timerLook').replaceChildren(new Option('Last look', ''), ...group('My themes', lookNames.themes), ...group('Presets', lookNames.presets));
+  $('timerLook').replaceChildren(new Option('Last look', ''), ...group('My themes', lookNames.themes.filter(availableLook)), ...group('Presets', lookNames.presets.filter(availableLook)));
   $('timerSheet').showModal(); drawSheet();
 }
 function drawSheet() {
@@ -743,7 +749,7 @@ function colorsUI(cs) {
     box.appendChild(inp);
     if (cs.length > 1) { const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove color ' + (i+1)); x.onclick = () => { cs.splice(i,1); set({colors: cs}, 'Color removed'); }; box.appendChild(x); }
   });
-  if (cs.length < 6) { const add = document.createElement('button'); add.className = 'btn'; add.textContent = '+ Color'; add.onclick = () => set({colors: [...cs, [255,255,255]]}, 'Color added'); box.appendChild(add); }
+  if (advanced() && cs.length < 6) { const add = document.createElement('button'); add.className = 'btn'; add.textContent = '+ Color'; add.onclick = () => set({colors: [...cs, [255,255,255]]}, 'Color added'); box.appendChild(add); }
 }
 // sliders: the 150 ms poll must not move a thumb the user is holding. iOS Safari never focuses a range input
 // on touch, so the poll tracks our own pointer handling instead of document.activeElement, plus a short hold
@@ -787,6 +793,17 @@ const NO_SPEED = ['solid', 'pattern', 'paint', 'custom'];
 let shownColors = '';
 function syncControls() {
   const s = cur(); if (!s) return;
+  const full = advanced();
+  document.body.classList.toggle('basic', !full); $('basicNote').hidden = full;
+  $('swap').hidden = !full; $('chips').hidden = !full;
+  document.querySelectorAll('#groups .tile, #mythemes .wrap').forEach(b => {
+    const p = JSON.parse((b.dataset.look ? b : b.querySelector('.tile')).dataset.look);
+    b.hidden = !full && (p.effect !== 'solid' || p.colors?.length !== 1);
+  });
+  if (N !== (full ? s.capabilities.bulbs : 0)) {
+    N = full ? s.capabilities.bulbs : 0; sel.clear(); last = null; $('strip').replaceChildren();
+    buildStrip();
+  }
   $('power').classList.toggle('on', !!s.on); $('power').setAttribute('aria-pressed', !!s.on);
   $('undo').disabled = !s.undo;
   const down = (light === 'all' ? ids() : [light]).filter(k => state.lights[k] && state.lights[k].error).map(nameOf);
@@ -797,9 +814,10 @@ function syncControls() {
   $('speed').disabled = NO_SPEED.includes(s.effect); $('amount').disabled = !AMOUNT[s.effect];
   $('swap').disabled = s.colors.length < 2;
   [['bright', s.brightness], ['speed', s.speed], ['amount', s.amount]].forEach(([id, v]) => { const r = $(id); if (!holding(r)) { r.value = v; slid(r); } });
-  adaptEffects();
-  const key = JSON.stringify(s.colors);
-  if (key !== shownColors && document.activeElement.type !== 'color') { shownColors = key; colorsUI(s.colors.map(c => [...c])); }
+  if (full) adaptEffects();
+  const cs = full ? s.colors : s.colors.slice(0, 1);
+  const key = JSON.stringify([full, cs]);
+  if (key !== shownColors && document.activeElement.type !== 'color') { shownColors = key; colorsUI(cs.map(c => [...c])); }
 }
 function draw() {
   $('paintbar').classList.toggle('on', sel.size > 0);
@@ -815,14 +833,16 @@ function paint() {
   set({effect:'paint', bulbs, on:true}, `Painted ${n} bulb${n > 1 ? 's' : ''}. Pick any effect to make it move again`);
 }
 
-for (let i = 0; i < N; i++) {
-  const b = document.createElement('button'); b.className = 'bulb'; b.setAttribute('aria-label', 'Bulb ' + (i+1));
-  b.onclick = e => { if (e.shiftKey && last !== null) { for (let j = Math.min(last,i); j <= Math.max(last,i); j++) sel.add(j); } else sel.has(i) ? sel.delete(i) : sel.add(i); last = i; draw(); };
-  $('strip').appendChild(b);
+function buildStrip() {
+  for (let i = 0; i < N; i++) {
+    const b = document.createElement('button'); b.className = 'bulb'; b.setAttribute('aria-label', 'Bulb ' + (i+1));
+    b.onclick = e => { if (e.shiftKey && last !== null) { for (let j = Math.min(last,i); j <= Math.max(last,i); j++) sel.add(j); } else sel.has(i) ? sel.delete(i) : sel.add(i); last = i; draw(); };
+    $('strip').appendChild(b);
+  }
 }
 SWATCHES.forEach(([name, c]) => {
   const b = document.createElement('button'); b.className = 'sw'; b.style.background = toHex(c); b.title = name; b.setAttribute('aria-label', name);
-  b.onclick = () => { const s = cur(); if (!s) return; const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: cs}, `${name} added`); };
+  b.onclick = () => { const s = cur(); if (!s) return; const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: advanced() ? cs : [c]}, `${name} added`); };
   $('swatches').appendChild(b);
 });
 CHIPS.forEach(t => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = t; c.onclick = () => ask(t); $('chips').appendChild(c); });
@@ -1040,7 +1060,7 @@ function showQR() {
 function hideQR() { if (!$('qrBox').classList.contains('on')) return; $('qrBox').classList.remove('on'); document.querySelector('[onclick="showQR()"]').focus(); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQR(); });
 async function refresh() {
-  try { state = await (await fetch('/api/state')).json(); N = state.n; syncControls(); draw(); }
+  try { state = await (await fetch('/api/state')).json(); syncControls(); draw(); }
   catch (e) { alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
   $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
