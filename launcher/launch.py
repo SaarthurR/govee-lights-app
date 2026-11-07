@@ -88,7 +88,8 @@ def serve(config):
                 marker = HERE / '.check-update'
                 force = marker.exists()
                 marker.unlink(missing_ok=True)
-                update.check(config, force=force, restart=restart)
+                if update.check(config, force=force, restart=restart) and config['service'] == 'launchd':
+                    return  # launchd restarts the rebuilt app so Local Network access matches its new binary
                 if child.poll() is not None:
                     raise RuntimeError('Lights server stopped.')
                 time.sleep(1)

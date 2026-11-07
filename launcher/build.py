@@ -30,15 +30,19 @@ if sys.platform == 'darwin':
     if subprocess.run(['xcode-select', '-p'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         compiler = None  # /usr/bin/swiftc can be a stub that prompts to install developer tools.
     if not compiler or subprocess.run([compiler, str(HERE / 'launcher/App.swift'), '-o', str(executable)]).returncode:
-        executable.write_text('#!/bin/sh\nexec ' + shlex.join([sys.executable, str(launch)]) + '\n')
+        executable.write_text('#!/bin/sh\nexec ' + shlex.join([sys.executable, '-u', str(launch)]) + ' "$@"\n')
         executable.chmod(0o755)
+        print('Lights cannot reach your lights from the background without the native app. '
+              'Run xcode-select --install, then run this installer again.')
     shutil.copyfile(HERE / 'launcher/icon.icns', resources / 'Lights.icns')
     (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(dict(
         CFBundleName='Govee Lights', CFBundleDisplayName='Govee Lights',
         CFBundleIdentifier=label + '.desktop', CFBundleExecutable='Govee Lights',
         CFBundlePackageType='APPL', CFBundleIconFile='Lights', CFBundleVersion='1',
-        NSHighResolutionCapable=True, NSAppTransportSecurity={'NSAllowsLocalNetworking': True}, NSLocalNetworkUsageDescription='Connect to your local Lights server.',
+        NSHighResolutionCapable=True, NSAppTransportSecurity={'NSAllowsLocalNetworking': True}, NSLocalNetworkUsageDescription='Govee Lights finds and controls the lights on your Wi-Fi.',
         LightsPython=sys.executable, LightsLauncher=str(launch))))
+    # Local Network privacy finds the app by signing identifier; swiftc's own signature uses the file name.
+    subprocess.run(['codesign', '--force', '--sign', '-', str(app)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     register = Path('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister')
     if register.exists():
         subprocess.run([str(register), '-f', str(app)], check=False)
