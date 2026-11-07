@@ -67,6 +67,16 @@ final class App: NSObject, NSApplicationDelegate {
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
+// The LaunchAgent runs this mode so macOS grants Local Network access to Govee Lights; a bare python agent is silently denied.
+let server = Process()
+if CommandLine.arguments.contains("--server") {
+    server.executableURL = URL(fileURLWithPath: Bundle.main.object(forInfoDictionaryKey: "LightsPython") as! String)
+    server.arguments = ["-u", Bundle.main.object(forInfoDictionaryKey: "LightsLauncher") as! String, "--server"]
+    signal(SIGTERM) { _ in kill(server.processIdentifier, SIGTERM) }
+    try server.run()
+    server.waitUntilExit()
+    exit(server.terminationStatus)
+}
 let delegate = App()
 NSApplication.shared.delegate = delegate
 NSApplication.shared.setActivationPolicy(.regular)

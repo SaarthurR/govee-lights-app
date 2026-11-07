@@ -1,7 +1,7 @@
 # Govee light strip control app over Wi-Fi (LAN API, per-bulb "razer" stream). Tested on H805D.
 # Run: python3 server.py  → http://localhost:8765 (phone: http://<this computer's IP>:8765)
 # Needs "LAN Control" on in the Govee Home app for each light.
-import base64, datetime as dt, ipaddress, json, math, os, random, shutil, socket, subprocess, tempfile, threading, time
+import base64, datetime as dt, errno, ipaddress, json, math, os, random, shutil, socket, subprocess, sys, tempfile, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib import request, error
@@ -57,6 +57,9 @@ PORT = int(os.environ.get("PORT", 8765))
 DRY = os.environ.get("GOVEE_DRY") == "1"  # test mode: nothing is sent to the lights
 FAKE = int(os.environ.get("GOVEE_FAKE_LIGHTS") or 0) if DRY else 0  # test mode: the scan "finds" this many lights
 FAKE_SKUS = os.environ.get("GOVEE_FAKE_SKUS", "H805D").split(",")
+# macOS Local Network privacy turns every LAN send into "No route to host" until the user allows the app.
+LAN_BLOCKED = ("Allow Govee Lights in System Settings > Privacy & Security > Local Network. "
+               "Not listed there? Run xcode-select --install in Terminal, then run the Lights installer again.")
 govee_key = ""
 govee_devices = []
 govee_cache = {}
@@ -605,15 +608,20 @@ def discover():
             m = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             msg = json.dumps({"msg": {"cmd": "scan", "data": {"account_topic": "reserve"}}}).encode()
             end = time.time() + 3
+            failed = None
             try:
                 while time.time() < end:
                     try:
                         m.sendto(msg, ("239.255.255.250", 4001))
                         replies.append(r.recvfrom(4096)[0])
-                    except (socket.timeout, OSError):
+                    except socket.timeout:
                         pass
+                    except OSError as e:
+                        failed = e
             finally:
                 r.close(); m.close()
+            if not replies and getattr(failed, "errno", None) == errno.EHOSTUNREACH:
+                raise failed  # blocked, not empty: say so instead of "no lights found"
         seen = {}
         for raw in replies:
             got = parse_scan(raw)
@@ -1361,7 +1369,8 @@ class H(BaseHTTPRequestHandler):
         except (ValueError, TypeError, KeyError) as e:
             self.reply(400, {"error": str(e)})
         except Exception as e:  # never leave the phone hanging without an answer
-            self.reply(500, {"error": f"Server error: {e}"})
+            blocked = sys.platform == "darwin" and getattr(e, "errno", None) == errno.EHOSTUNREACH
+            self.reply(500, {"error": LAN_BLOCKED if blocked else f"Server error: {e}"})
 
     def log_message(self, *a):
         pass
@@ -1557,7 +1566,10 @@ if __name__ == "__main__":
     SAVE, found, DRY = real, {}, was_dry
     PREVIEWS = previews()
     load()
-    print("found:", {short(k): d["ip"] for k, d in discover().items()} or "no lights yet (turn on LAN Control in the Govee Home app)")
+    try:
+        print("found:", {short(k): d["ip"] for k, d in discover().items()} or "no lights yet (turn on LAN Control in the Govee Home app)")
+    except OSError as e:
+        print("scan failed:", e)
     me = "localhost"
     try:  # which address the phone should use; a UDP connect sends no packet
         u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); u.connect(("8.8.8.8", 80)); me = u.getsockname()[0]; u.close()

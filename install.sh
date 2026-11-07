@@ -75,7 +75,9 @@ env = {"PORT": port, "PATH": os.environ.get("PATH", "/usr/bin:/bin")}  # so the 
 env.update({k: os.environ[k] for k in ("GOVEE_DRY", "GOVEE_FAKE_LIGHTS", "GOVEE_FAKE_SKUS", "GOVEE_STATE") if k in os.environ})
 if service == "launchd":
     p = pathlib.Path(agent); p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_bytes(plistlib.dumps(dict(Label=label, ProgramArguments=[sys.executable, "-u", directory + "/launcher/launch.py", "--server"],
+    # Run as the app, not bare python: macOS only grants Local Network access to an app the user can allow.
+    app = str(pathlib.Path.home() / "Applications/Govee Lights.app/Contents/MacOS/Govee Lights")
+    p.write_bytes(plistlib.dumps(dict(Label=label, ProgramArguments=[app, "--server"],
         WorkingDirectory=directory, EnvironmentVariables=env, RunAtLoad=True, KeepAlive=True,
         StandardOutPath=directory + "/lights.log", StandardErrorPath=directory + "/lights.log")))
 elif service == "systemd":

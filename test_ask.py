@@ -1,5 +1,7 @@
 """Offline Ask contract checks. No network/device or paid Claude calls."""
 import copy
+import errno
+import itertools
 import json
 import os
 from pathlib import Path
@@ -232,6 +234,29 @@ class AskChecks(unittest.TestCase):
                 self.assertIn("Ember", app.themes)
                 answer = dict(say="Cleared", actions=[dict(type="clear_chat")])
                 self.assertEqual(post("")[1]["turns"], [])
+        finally:
+            http.shutdown(); http.server_close(); thread.join()
+
+    def test_mac_local_network_block(self):
+        class Blocked:  # what macOS does to every LAN send before the user allows Local Network
+            def __init__(self, *a): pass
+            setsockopt = bind = settimeout = close = lambda self, *a: None
+            def sendto(self, *a): raise OSError(errno.EHOSTUNREACH, "No route to host")
+        with patch.object(app, "DRY", False), patch.object(app.socket, "socket", Blocked), patch.object(app.time, "time", side_effect=itertools.count(0, 2)):
+            with self.assertRaises(OSError):
+                app.discover()
+        http = app.ThreadingHTTPServer(("localhost", 8772), app.H)
+        thread = threading.Thread(target=http.serve_forever, daemon=True)
+        thread.start()
+        blocked = OSError(errno.EHOSTUNREACH, "No route to host")
+        try:
+            for platform, expected in (("darwin", app.LAN_BLOCKED), ("linux", f"Server error: {blocked}")):
+                req = app.request.Request("http://localhost:8772/api/scan", data=b"{}", headers={"Content-Type": "application/json"})
+                with patch.object(app.sys, "platform", platform), patch.object(app, "discover", side_effect=blocked), \
+                        self.assertRaises(app.error.HTTPError) as caught:
+                    app.request.urlopen(req)
+                with caught.exception as e:
+                    self.assertEqual(json.load(e)["error"], expected)
         finally:
             http.shutdown(); http.server_close(); thread.join()
 
