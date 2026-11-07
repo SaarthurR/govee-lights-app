@@ -4,11 +4,12 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 
-os.environ.update(GOVEE_DRY="1", PORT="8768", GOVEE_FAKE_LIGHTS="2")
+os.environ.update(GOVEE_DRY="1", PORT="8771", GOVEE_FAKE_LIGHTS="2")
 import server as app
 
 
@@ -16,7 +17,8 @@ class AskChecks(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         app.SAVE = Path(self.tmp.name) / "state.json"
-        app.st.clear(); app.themes.clear(); app.schedule.clear()
+        app.st.clear(); app.themes.clear(); app.schedule.clear(); app.found.clear()
+        app.location = None; app.ask_on = True
         if hasattr(app, "lights"):
             app.lights.clear()
             app.add_light("a", "First", "H805D"); app.add_light("b", "Second", "H805D")
@@ -33,11 +35,11 @@ class AskChecks(unittest.TestCase):
     def ask(self, actions, selected=None):
         raw = json.dumps(dict(say="Done", actions=actions))
         with patch.object(app.subprocess, "run", return_value=SimpleNamespace(stdout=raw, returncode=0)) as run:
-            answer = app.ask_claude(selected or self.keys, "test")
+            answer = app.ask_claude(self.keys if selected is None else selected, "test")
         args = run.call_args.args[0]
         self.assertEqual(args[args.index("--model") + 1], "haiku")
         self.assertEqual(args[args.index("--tools") + 1], "")
-        return app.apply_answer(answer, selected or self.keys)
+        return app.apply_answer(answer, self.keys if selected is None else selected)
 
     def test_actions_and_persistence(self):
         a, b = self.keys
@@ -121,6 +123,117 @@ class AskChecks(unittest.TestCase):
         self.assertIn("bulbs", json.loads(app.ask_prompt(self.keys, "paint bulb 1"))["lights"][self.keys[0]]["look"])
         app.chat.update(at=0, turns=[["old", "old", False]])
         self.assertEqual(app.chat_view()["turns"], [])
+
+    def test_no_light_themes_location_and_questions(self):
+        app.lights.clear(); app.st.clear(); app.schedule.clear()
+        with patch.object(app, "FAKE", 0):
+            self.assertEqual(app.discover(), {})
+        self.assertEqual(app.ask_keys("all"), [])
+        self.ask([], [])
+        self.ask([dict(type="save_theme", name="Ember", settings=dict(effect="fire", colors=[[255, 60, 0]])),
+                  dict(type="rename_theme", name="Ember", new="Glow"), dict(type="location", lat=0, lon=0)], [])
+        self.assertEqual(app.themes["Glow"]["effect"], "fire")
+        self.assertEqual(app.location, [0, 0])
+        self.ask([dict(type="delete_theme", name="Glow")], [])
+        for kind in ("set", "paint", "schedule", "apply_theme", "rename_light", "undo", "save_theme"):
+            with self.assertRaisesRegex(ValueError, "Add a light"):
+                self.ask([dict(type=kind)], [])
+        self.assertFalse(app.themes)
+
+    def test_theme_dependencies_and_full_schedule(self):
+        self.ask([dict(type="location", lat=0, lon=0),
+                  dict(type="save_theme", name="Ember", settings=dict(effect="fire", brightness=50)),
+                  dict(type="apply_theme", target="all", name="Ember"),
+                  dict(type="schedule", target="all", schedule=dict(add=[dict(time="sunset-20", action="on", days=[5, 6], theme="Ember"),
+                                                                          dict(time="00:00", action="off", days=[5, 6])]))])
+        self.assertTrue(all(s["effect"] == "fire" and s["brightness"] == 100 and s["on"] for s in app.st.values()))
+        self.assertTrue(all(s["timers"][0]["theme"] == "Ember" for s in app.schedule.values()))
+        self.ask([dict(type="rename_theme", name="Ember", new="Glow")])
+        self.assertTrue(all(s["timers"][0]["theme"] == "Glow" for s in app.schedule.values()))
+        self.ask([dict(type="schedule", target="all", schedule=dict(add=[dict(time=f"{h:02}:00", action="on") for h in range(8)]))])
+        self.assertTrue(all(len(s["timers"]) == 10 for s in app.schedule.values()))
+        self.ask([dict(type="set", settings=dict(effect="solid", bulbs=None, animation=None, colors=[[1, 2, 3]], speed=.05, amount=1))])
+        before = copy.deepcopy((app.st, app.themes, app.schedule, app.location))
+        for bad in (dict(type="location", lat=float("nan"), lon=0),
+                    dict(type="save_theme", name="Bad", settings=dict(on="yes")),
+                    dict(type="apply_theme", name="missing"),
+                    dict(type="set", settings=dict(bulbs=[[1, 2, 3]]))):
+            with self.assertRaises((ValueError, TypeError)):
+                self.ask([dict(type="location", lat=1, lon=1), bad])
+            self.assertEqual(before, (app.st, app.themes, app.schedule, app.location))
+        with self.assertRaisesRegex(ValueError, "16 actions"):
+            self.ask([dict(type="undo")] * 17)
+
+    def test_setup_network_and_chat_actions(self):
+        with patch.object(app, "flash") as flash:
+            self.ask([dict(type="flash", target="all")])
+            self.assertEqual(flash.call_count, 2)
+        with patch.object(app, "discover", return_value=dict.fromkeys(self.keys)), patch.object(app, "reconnect") as reconnect:
+            self.ask([dict(type="reconnect", target="all")])
+            self.assertEqual(reconnect.call_count, 2)
+            self.ask([dict(type="scan")], [])
+        with patch.object(app, "import_devices") as refresh, patch.object(app, "disconnect_govee") as disconnect:
+            self.ask([dict(type="govee_refresh")], [])
+            self.ask([dict(type="govee_disconnect")], [])
+            refresh.assert_called_once(); disconnect.assert_called_once()
+        with patch.object(app, "imported_scenes", return_value=dict(scenes=[])) as scenes:
+            self.ask([dict(type="govee_scenes", target=self.keys[0])])
+            scenes.assert_called_once_with(self.keys[0])
+        self.ask([dict(type="ask_use", use=False)])
+        self.assertFalse(app.ask_on)
+        app.chat.update(at=1, turns=[["old", "reply", False]])
+        self.ask([dict(type="clear_chat")])
+        self.assertEqual(app.chat["turns"], [])
+        with patch.object(app, "FAKE", 2):
+            app.discover()
+        discovered = next(iter(app.found))
+        self.ask([dict(type="save_lights", lights=[dict(id=discovered, name="Third")])], [])
+        self.assertIn(discovered, app.st)
+        self.ask([dict(type="forget_light", target=discovered)])
+        self.assertNotIn(discovered, app.st)
+        with patch.object(app, "flash") as flash:
+            for batch in ([dict(type="flash"), dict(type="set", settings=dict(on=False))],
+                          [dict(type="set", settings=dict(on=False)), dict(type="flash")]):
+                with self.assertRaises(ValueError):
+                    self.ask(batch)
+            flash.assert_not_called()
+
+    def test_http_selection_lifecycle(self):
+        # Exercise the real handler; only the paid model call is stubbed.
+        http = app.ThreadingHTTPServer(("localhost", 8771), app.H)
+        thread = threading.Thread(target=http.serve_forever, daemon=True)
+        thread.start()
+        answer = dict(say="Ready", actions=[])
+        def post(light, text="question"):
+            req = app.request.Request("http://localhost:8771/api/ask", data=json.dumps(dict(light=light, text=text)).encode(),
+                                      headers={"Content-Type": "application/json"})
+            try:
+                with app.request.urlopen(req) as r:
+                    return r.status, json.load(r)
+            except app.error.HTTPError as e:
+                with e:
+                    return e.code, json.load(e)
+        try:
+            with patch.object(app, "ask_claude", side_effect=lambda keys, text: (json.loads(app.ask_prompt(keys, text)), answer)[1]) as model:
+                for selected, expected in (("all", self.keys), ("", []), (None, []), ("gone", []), (self.keys[0], [self.keys[0]])):
+                    self.assertEqual(post(selected)[0], 200)
+                    self.assertEqual(model.call_args.args[0], expected)
+                app.apply_answer(dict(say="Renamed", actions=[dict(type="rename_light", target=self.keys[0], name="Renamed")]), self.keys)
+                self.assertEqual(app.ask_keys(self.keys[0]), [self.keys[0]])
+                app.forget_light(self.keys[0])
+                self.assertEqual(post(self.keys[0])[0], 200)
+                self.assertEqual(model.call_args.args[0], [])
+                answer = dict(say="Done", actions=[dict(type="set", settings=dict(on=True))])
+                self.assertIn("Pick a saved light", post(self.keys[0])[1]["error"])
+                app.forget_light(self.keys[1])
+                self.assertIn("Add a light", post("all")[1]["error"])
+                answer = dict(say="Created", actions=[dict(type="save_theme", name="Ember", settings=dict(effect="fire"))])
+                self.assertEqual(post("all")[0], 200)
+                self.assertIn("Ember", app.themes)
+                answer = dict(say="Cleared", actions=[dict(type="clear_chat")])
+                self.assertEqual(post("")[1]["turns"], [])
+        finally:
+            http.shutdown(); http.server_close(); thread.join()
 
 
 if __name__ == "__main__":

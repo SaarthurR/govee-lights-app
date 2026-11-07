@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-os.environ.update(GOVEE_DRY="1", PORT="8768")
+os.environ.update(GOVEE_DRY="1", PORT="8771", GOVEE_FAKE_LIGHTS="2")
 import server as app
 
 
