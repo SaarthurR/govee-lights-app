@@ -426,7 +426,7 @@ def when(spec, day):
     return dt.datetime(day.year, day.month, day.day, h, m)
 
 
-def clean_time(spec):
+def clean_time(spec, location_set=None):
     """'HH:MM', 'sunset', 'sunset+30' or 'sunset-15' (up to 120 min either way) -> normalized spec."""
     spec = str(spec).strip().lower().replace(" ", "")
     try:
@@ -437,7 +437,7 @@ def clean_time(spec):
     except ValueError:
         raise ValueError('time must be "HH:MM" or "sunset", "sunset+30", "sunset-15"') from None
     if spec.startswith("sunset"):
-        if not location:
+        if not (location is not None if location_set is None else location_set):
             raise ValueError("Add your location first, so the app knows when sunset is.")
         if not -120 <= m <= 120:
             raise ValueError("Sunset can move up to 120 minutes either way.")
@@ -447,7 +447,7 @@ def clean_time(spec):
     return f"{h:02d}:{m:02d}"
 
 
-def clean_timer(t, old=None, strict=True):
+def clean_timer(t, old=None, strict=True, saved=None, location_set=None):
     """A timer from the page or Claude, patched onto old (keeps old's id). strict: its theme must exist now."""
     if not isinstance(t, dict) or set(t) - {"id", "time", "action", "days", "enabled", "theme"}:
         raise ValueError("Send a timer as {time, action, days, enabled, theme}.")
@@ -459,14 +459,14 @@ def clean_timer(t, old=None, strict=True):
     if type(t.get("enabled", True)) is not bool:
         raise ValueError("enabled must be true or false.")
     theme = t.get("theme") if t["action"] == "on" else None  # an off timer has no look
-    if theme is not None and (not isinstance(theme, str) or strict and theme not in themes and theme not in BUILTIN):
+    if theme is not None and (not isinstance(theme, str) or strict and theme not in (themes if saved is None else saved) and theme not in BUILTIN):
         raise ValueError("Pick one of your themes or presets, or keep the last look.")
-    out = {"id": str((old or {}).get("id") or os.urandom(4).hex()), "time": clean_time(t["time"]), "action": t["action"],
+    out = {"id": str((old or {}).get("id") or os.urandom(4).hex()), "time": clean_time(t["time"], location_set), "action": t["action"],
            "days": clean_days(t.get("days")), "enabled": t.get("enabled", True)}
     return out | ({"theme": theme} if theme else {})
 
 
-def change_timers(scheds, keys, add=(), edit=(), delete=()):
+def change_timers(scheds, keys, add=(), edit=(), delete=(), saved=None, location_set=None):
     """Add timers, patch them by id and delete them by id on these lights, in scheds only. Raises before a bad change."""
     if not all(isinstance(x, (list, tuple)) for x in (add, edit, delete)):
         raise ValueError("add, edit and delete must be lists.")
@@ -478,9 +478,9 @@ def change_timers(scheds, keys, add=(), edit=(), delete=()):
         for patch in edit:
             for j, t in enumerate(ts):
                 if isinstance(patch, dict) and t["id"] == patch.get("id"):
-                    ts[j] = clean_timer(patch, t)
+                    ts[j] = clean_timer(patch, t, saved=saved, location_set=location_set)
                     hit.add(t["id"])
-        ts += [clean_timer(t) for t in add]
+        ts += [clean_timer(t, saved=saved, location_set=location_set) for t in add]
         if len(ts) > MAX_TIMERS:
             raise ValueError(f"{lights[k]['name']} can have up to {MAX_TIMERS} timers. Delete one first.")
     if ({p.get("id") if isinstance(p, dict) else p for p in edit} | set(delete)) - hit:
@@ -912,16 +912,34 @@ def save_theme(name, p):
         save()
 
 
-ASK = """Control Govee lights. Each light supplies capabilities: bulbs is its color-slot count; razer=false means only on/off, brightness, one solid color and schedules. Never request effects, painting or animations on basic lights. JSON only: {"say":"short sentence or one clarification question","actions":[]}.
-If unclear ask one short question, actions empty. Only requested changes. No code. Actions (target = light id or "selected" or "all", default selected):
-{"type":"set","target":"selected","settings":{}} settings optional keys: on boolean, brightness 1-100, effect, colors 1-6 RGB triples (integer 0-255), speed .05-5, amount .05-1, bulbs exactly that light's count of RGBs, animation.
-Effects: wave (fast alternating fades), smoothwave (slow), shimmer (drift/twinkle), twinkle (base/sparkle), comet (base/head), fire, aurora, solid, pattern, chase, breathe, rainbow, paint, custom.
-custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}],"shift":integer -bulbs..bulbs,"motion":"forward|center|outward","block":1..bulbs}. Each color spans block bulbs. 1-16 frames, 1..bulbs colors/pattern repeated across bulbs, duration 1/12..60 sec, fade fraction at frame end to next shifted frame. Shift bulbs each frame, loop forever. Use short patterns; speed does not affect custom. center moves from both ends inward with positive shift. Prefer custom for new looks. Never expand repeated colors: police = pattern [[255,0,0],[0,0,255]], block half the light's bulbs, shift the same, duration 2. Rainbow inward = 6-color pattern, block 3, shift 1, motion center.
-{"type":"paint","target":"selected","indices":[0,1],"color":[r,g,b]} edits only listed bulbs, 0 first.
-{"type":"schedule","target":"selected","schedule":{"add":[{"time":"HH:MM|sunset|sunset-15","action":"on|off","days":[0,1,2,3,4],"theme":"name"}],"edit":[{"id":"id","enabled":false}],"delete":["id"],"use":true}} all keys optional; edit = id + changed fields; days Mon=0..Sun=6, default every day; sunset offset -120..120 min; theme = theme or preset name, on only, omit = last look; max 10 timers per light. use = Use this app's schedule; keep unless asked. Scheduling never changes the light now; add a set action only if asked.
-{"type":"save_theme","name":"name","target":"selected"} save resulting look; selected must be one light if looks differ.
-{"type":"rename_theme","name":"old","new":"new"}, {"type":"delete_theme","name":"name"}, {"type":"rename_light","target":"id","name":"name"}, {"type":"undo","target":"selected"}.
-Use full preset/theme settings to apply. Keep brightness unchanged unless asked. Gold [255,200,80], white [255,255,255]. Chat expires after 5 min."""
+def disconnect_govee():
+    global govee_key, govee_devices
+    with govee_lock:
+        with lock:
+            previous = govee_key
+            govee_key = ""
+            if not save():
+                govee_key = previous
+                raise ValueError("Cannot remove the key. Check the saved-state file is writable and try again.")
+        govee_devices = []
+        govee_cache.clear()
+
+
+def ask_keys(selected):
+    if selected == "all":
+        return list(lights)
+    return [selected] if isinstance(selected, str) and selected in lights else []
+
+
+ASK = """Govee controller. JSON only: {"say":"short reply or one clarification question","actions":[]}, max 16 actions. Unclear: ask, no actions. Only requested changes; no code. No lights: questions, themes and location still work; explain when a light is needed. target=light id|selected|all (default selected); never guess a missing selection.
+Actions:
+{"type":"set","settings":{}} optional fields: on bool, brightness 1-100, effect, colors 1-6 RGB integer triples 0-255, speed .05-5, amount .05-1, bulbs exactly light's slot count RGBs or null, animation or null. Effects: wave, smoothwave (slow), shimmer, twinkle, comet, fire, aurora, solid, pattern, chase, breathe, rainbow, paint, custom. razer=false supports only power, brightness, one solid color and timers.
+custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}],"shift":integer,"motion":"forward|center|outward","block":integer}. 1-16 frames, 1..bulbs colors/pattern repeated, duration 1/12..60s, fade at end toward next shifted frame; shift -bulbs..bulbs each frame; block 1..bulbs per color. Loop; speed ignored. Prefer short custom patterns for new effects. Slow police: red/blue pattern, block half bulbs, shift half bulbs, duration 2. center moves inward.
+{"type":"paint","indices":[0,1],"color":[r,g,b]} zero based, only listed bulbs.
+{"type":"save_theme","name":"name","settings":{}} creates from DEFAULT + settings without a light; omit settings to save target's resulting look (one look required). {"type":"apply_theme","name":"theme or preset"} keeps brightness unless asked. {"type":"rename_theme","name":"old","new":"new"}, {"type":"delete_theme","name":"name"}.
+{"type":"schedule","schedule":{"add":[{"time":"HH:MM|sunset|sunset-20","action":"on|off","days":[5,6],"theme":"name","enabled":true}],"edit":[{"id":"id","enabled":false}],"delete":["id"],"use":true}} optional keys; edit=id+changes. Mon=0..Sun=6, default daily; sunset offset +/-120min, requires location to run. theme/preset on timers only; omit=last look. Max 10 timers/light. use=master switch, keep unless asked. Never changes lights now. Midnight off ends the preceding on-night; use same days as on.
+{"type":"location","lat":number,"lon":number} only user-provided coordinates; ask if unknown. {"type":"rename_light","name":"name"}, {"type":"undo"}, {"type":"flash"}, {"type":"reconnect"}, {"type":"forget_light"}, {"type":"scan"}, {"type":"save_lights","lights":[{"id":"discovered id","name":"name"}]}. Setup/network/account actions must be alone; scan then let user choose discovered lights.
+{"type":"govee_refresh"}, {"type":"govee_disconnect"}, {"type":"govee_scenes"}, {"type":"ask_use","use":false}, {"type":"clear_chat"}. Enter account keys in page; browser location/QR/preview/help are page controls. Keep brightness unless asked. Names max 30 light/40 theme. Chat expires in 5 min."""
 CHAT_TTL, CHAT_TURNS = 300, 6
 chat = {"at": 0.0, "turns": []}  # short memory for follow-ups; forgotten after 5 quiet minutes so each ask stays cheap
 
@@ -940,6 +958,7 @@ def ask_prompt(keys, text):
             "capabilities": capability(k), "schedule": schedule[k]} for k, v in st.items()}, "presets": BUILTIN,
             "themes": {k: small(v) for k, v in themes.items()},
             "history": {k: [small(h) for h in st[k]["history"][-3:]] for k in keys},
+            "location_set": location is not None, "found": [{"id": k, "sku": d["sku"]} for k, d in found.items() if k not in lights],
             "chat": chat_view()["turns"], "request": text[:500]}
     return json.dumps(data, separators=(",", ":"))
 
@@ -966,6 +985,7 @@ def ask_claude(keys, text):
 
 
 def apply_answer(answer, keys):
+    global location, ask_on
     # Validate the whole batch against copies before any device or saved-state change.
     if not isinstance(answer, dict) or set(answer) - {"say", "actions"} or not isinstance(answer.get("say"), str):
         raise ValueError("Claude returned an invalid answer.")
@@ -975,35 +995,96 @@ def apply_answer(answer, keys):
     looks, saved = {k: look(v) for k, v in st.items()}, dict(themes)
     histories = {k: list(v["history"]) for k, v in st.items()}
     scheds = {k: dict(v, timers=list(v["timers"])) for k, v in schedule.items()}
+    location_set = location is not None
     plan = []
     for a in actions:
         if not isinstance(a, dict):
             raise ValueError("Invalid action.")
         kind = a.get("type")
         fields = {"set": {"settings"}, "paint": {"indices", "color"}, "schedule": {"schedule"},
-                  "save_theme": {"name"}, "rename_theme": {"name", "new"}, "delete_theme": {"name"},
-                  "rename_light": {"name"}, "undo": set()}
+                  "save_theme": {"name", "settings"}, "apply_theme": {"name"},
+                  "rename_theme": {"name", "new"}, "delete_theme": {"name"},
+                  "rename_light": {"name"}, "undo": set(), "location": {"lat", "lon"},
+                  "flash": set(), "reconnect": set(), "forget_light": set(), "scan": set(),
+                  "save_lights": {"lights"}, "govee_refresh": set(), "govee_disconnect": set(),
+                  "govee_scenes": set(), "ask_use": {"use"}, "clear_chat": set()}
         if kind not in fields or set(a) - (fields[kind] | {"type", "target"}):
             raise ValueError("Unknown action or field.")
         target = a.get("target", "selected")
+        if not isinstance(target, str):
+            raise ValueError("Invalid light target.")
         targets = list(st) if target == "all" else list(keys) if target == "selected" else [target]
-        if not targets or any(k not in st for k in targets):
-            raise ValueError("Unknown light.")
+        needs_light = kind in ("set", "apply_theme", "paint", "schedule", "rename_light", "undo", "reconnect", "forget_light", "govee_scenes") or kind == "save_theme" and "settings" not in a
+        if needs_light and (not targets or any(k not in st for k in targets)):
+            raise ValueError("Add a light in Manage lights first." if not st else "Pick a saved light, then try again. The selected light may have been forgotten.")
         value = None
-        if kind == "set":
-            value = a.get("settings")
+        if kind in ("flash", "reconnect", "forget_light", "scan", "save_lights", "govee_refresh", "govee_disconnect", "govee_scenes", "ask_use", "clear_chat"):
+            # Network/setup operations cannot be simulated as part of an atomic look batch.
+            if len(actions) != 1:
+                raise ValueError("Ask for setup, network or chat changes separately.")
+            if kind == "flash":
+                if not targets or any(k not in st and k not in found for k in targets):
+                    raise ValueError("Pick a saved or discovered light to flash. Scan if needed.")
+                for k in targets:
+                    flash(k)
+            elif kind == "reconnect":
+                seen = discover()
+                if any(k not in seen for k in targets):
+                    raise ValueError("Could not find the light. Check power and LAN Control, then scan again.")
+                for k in targets:
+                    reconnect(k)
+            elif kind == "forget_light":
+                for k in targets:
+                    forget_light(k)
+            elif kind == "scan":
+                discover()
+                return f"Found {len(found)} lights. Choose lights in Manage lights to add them.", False
+            elif kind == "save_lights":
+                save_lights(a.get("lights"))
+            elif kind == "govee_refresh":
+                import_devices(govee_key)
+            elif kind == "govee_disconnect":
+                disconnect_govee()
+            elif kind == "govee_scenes":
+                if len(targets) != 1:
+                    raise ValueError("Pick one light to read its Govee scenes.")
+                return json.dumps(imported_scenes(targets[0]))[:300], False
+            elif kind == "ask_use":
+                if type(a.get("use")) is not bool:
+                    raise ValueError("Ask use must be true or false.")
+                ask_on = a["use"]
+                with lock:
+                    save()
+            else:
+                chat.update(at=0, turns=[])
+            return answer["say"][:300], False
+        if kind == "location":
+            value = clean_location(a.get("lat"), a.get("lon"))
+            location_set = True
+        elif kind in ("set", "apply_theme") or kind == "save_theme" and "settings" in a:
+            value = a.get("settings") if kind != "apply_theme" else saved.get(a.get("name"), BUILTIN.get(a.get("name")))
             if not isinstance(value, dict) or set(value) - set(KEYS):
                 raise ValueError("Invalid settings.")
+            value = dict(value)
+            if kind == "apply_theme":
+                value.pop("brightness", None)
+                value["on"] = True
             for field, low, high in (("speed", .05, 5), ("amount", .05, 1), ("brightness", 1, 100)):
                 if field in value and (type(value[field]) not in (int, float) or not low <= value[field] <= high):
                     raise ValueError("Invalid " + field)
             if "on" in value and type(value["on"]) is not bool:
                 raise ValueError("Power must be true or false.")
             for field, limit in (("colors", 6), ("bulbs", N)):
-                if field in value:
+                if field in value and not (field == "bulbs" and value[field] is None):
                     rgb_list(value[field], limit)
             value = clean(value)
-            for k in targets:
+            if kind == "save_theme":
+                value = dict(DEFAULT, **value)
+                if value["effect"] == "custom" and value["animation"] is None:
+                    raise ValueError("Custom effect needs an animation.")
+            for k in targets if kind != "save_theme" else []:
+                if kind == "set" and value.get("bulbs") is not None and len(a["settings"]["bulbs"]) != capability(k)["bulbs"]:
+                    raise ValueError("Supply exactly this light's bulb count.")
                 if set(value) - {"on", "brightness"} and dict(looks[k], **value) != looks[k]:
                     histories[k] = (histories[k] + [looks[k]])[-HISTORY:]
                 looks[k] = dict(looks[k], **light_settings(k, value))
@@ -1030,7 +1111,7 @@ def apply_answer(answer, keys):
                 raise ValueError("Invalid schedule.")
             if "use" in value and type(value["use"]) is not bool:
                 raise ValueError("Schedule use must be true or false.")
-            change_timers(scheds, targets, value.get("add", []), value.get("edit", []), value.get("delete", []))
+            change_timers(scheds, targets, value.get("add", []), value.get("edit", []), value.get("delete", []), saved=saved, location_set=location_set)
             for k in targets:
                 scheds[k]["use"] = value.get("use", scheds[k]["use"])
         elif kind == "undo":
@@ -1038,16 +1119,17 @@ def apply_answer(answer, keys):
                 raise ValueError("Nothing to undo.")
             for k in targets:
                 looks[k] = histories[k].pop()
-        else:
+        if kind in ("save_theme", "rename_theme", "delete_theme", "rename_light"):
             name = a.get("name")
             if not isinstance(name, str) or not name.strip() or len(name) > (30 if kind == "rename_light" else 40):
                 raise ValueError("Invalid name.")
             name = " ".join(name.split())
+            settings = value
             value = name
             if kind == "save_theme":
-                if any(looks[k] != looks[targets[0]] for k in targets):
+                if "settings" not in a and any(looks[k] != looks[targets[0]] for k in targets):
                     raise ValueError("Pick one light to save its look.")
-                saved[name] = {k: v for k, v in looks[targets[0]].items() if k != "on"}
+                saved[name] = {k: v for k, v in (settings if "settings" in a else looks[targets[0]]).items() if k != "on"}
                 value = (name, saved[name])
             elif kind in ("rename_theme", "delete_theme"):
                 if name not in saved:
@@ -1060,6 +1142,8 @@ def apply_answer(answer, keys):
                     if new != name and new in saved:
                         raise ValueError("That theme name already exists.")
                     saved[new] = saved.pop(name)
+                    for sc in scheds.values():
+                        sc["timers"] = [dict(t, theme=new) if t.get("theme") == name else t for t in sc["timers"]]
                     value = (name, new)
                 else:
                     del saved[name]
@@ -1070,16 +1154,13 @@ def apply_answer(answer, keys):
         plan.append((kind, targets, value))
     changed = False
     for kind, targets, value in plan:
-        if kind in ("set", "paint", "undo"):
+        if kind in ("set", "apply_theme", "paint", "undo"):
             for k in targets:
                 if kind == "undo":
                     undo(k)
                 else:
                     push(k, dict(value[k] if kind == "paint" else value))
             changed = True
-        elif kind == "schedule":
-            for k in targets:
-                schedule[k] = scheds[k]
         elif kind == "save_theme":
             save_theme(*value)
         elif kind == "rename_theme":
@@ -1088,8 +1169,11 @@ def apply_answer(answer, keys):
             del themes[value]
         elif kind == "rename_light":
             lights[targets[0]]["name"] = value
+        elif kind == "location":
+            location = value
     if plan:
         with lock:
+            schedule.update(scheds)
             save()
     return answer["say"][:300], changed
 
@@ -1174,15 +1258,7 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/api/govee/refresh":
                 return self.reply(200, import_devices(body.get("key", govee_key)))
             if self.path == "/api/govee/disconnect":
-                with govee_lock:
-                    with lock:
-                        previous = govee_key
-                        govee_key = ""
-                        if not save():
-                            govee_key = previous
-                            raise ValueError("Cannot remove the key. Check state.json is writable and try again.")
-                    govee_devices = []
-                    govee_cache.clear()
+                disconnect_govee()
                 return self.reply(200, {"ok": True})
             if self.path == "/api/govee/scenes":
                 return self.reply(200, imported_scenes(body.get("light")))
@@ -1225,6 +1301,20 @@ class H(BaseHTTPRequestHandler):
                 with lock:
                     save()
                 return self.reply(200, {"ok": True})
+            if self.path == "/api/ask":
+                if not ask_on:
+                    raise ValueError("Ask Claude is off. Turn it on at the bottom of the page.")
+                keys = ask_keys(body.get("light"))
+                text = str(body.get("text", ""))
+                answer = ask_claude(keys, text)
+                say, changed = apply_answer(answer, keys)
+                for k in keys:
+                    if k in st:
+                        st[k]["said"] = say
+                if not any(a.get("type") == "clear_chat" for a in answer["actions"]):
+                    chat["turns"] = (chat["turns"] + [[text[:500], say, changed]])[-CHAT_TURNS:]
+                    chat["at"] = time.time()
+                return self.reply(200, {"say": say, "changed": changed} | chat_view())
             keys = list(lights) if body.get("light") == "all" else [body.get("light")]
             if not keys or any(k not in st for k in keys):
                 return self.reply(400, {"error": "unknown light" if keys else "Set up a light first."})
@@ -1238,15 +1328,6 @@ class H(BaseHTTPRequestHandler):
                 for k in keys:
                     undo(k)
                 return self.reply(200, {"ok": True})
-            if self.path == "/api/ask":
-                if not ask_on:
-                    raise ValueError("Ask Claude is off. Turn it on at the bottom of the page.")
-                say, changed = apply_answer(ask_claude(keys, str(body.get("text", ""))), keys)
-                for k in keys:
-                    st[k]["said"] = say
-                chat["turns"] = (chat["turns"] + [[str(body.get("text", ""))[:500], say, changed]])[-CHAT_TURNS:]
-                chat["at"] = time.time()
-                return self.reply(200, {"say": say, "changed": changed} | chat_view())
             if self.path == "/api/schedule":  # {"light", "add": [timer], "edit": [{"id", ...changes}], "delete": [id]}
                 with lock:
                     scheds = {k: dict(schedule[k], timers=list(schedule[k]["timers"])) for k in keys}

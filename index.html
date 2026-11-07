@@ -116,15 +116,39 @@
   details { margin-top:16px; border-top:1px solid var(--line); }
   summary { cursor:pointer; font-size:15px; padding:14px 0 0; }
   .foot { text-align:center; font-size:14px; color:var(--mute); margin:20px 0 0; display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; }
-  .log { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow-y:auto; overscroll-behavior:contain; margin-bottom:12px; }
-  .msg { max-width:85%; padding:9px 13px; border-radius:16px; font-size:15px; line-height:1.35; overflow-wrap:anywhere; }
-  .msg.new { animation:rise 200ms ease-out both; }
-  .msg.me { align-self:flex-end; background:var(--ink); color:#fff; border-bottom-right-radius:6px; }
+  /* chat: column-reverse keeps the log pinned to the newest bubble, even when it fills while the card is hidden */
+  .logbox { display:flex; flex-direction:column-reverse; max-height:min(420px, 55dvh); margin-top:-8px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin;
+    -webkit-mask:linear-gradient(transparent, #000 14px); mask:linear-gradient(transparent, #000 14px); }
+  .log { display:flex; flex-direction:column; gap:6px; padding:14px 0; }
+  .logbox:has(> .log:not([hidden])) + .chat-empty { display:none; }
+  .chat-empty { margin:12px 0 14px; font-size:15px; color:var(--mute); text-wrap:balance; }
+  .msg { max-width:min(82%, 520px); padding:10px 14px; border-radius:20px; font-size:15px; line-height:1.4; overflow-wrap:anywhere; text-wrap:pretty; }
+  .msg.new { animation:rise 250ms var(--ease-out) both; }
+  .msg.me { align-self:flex-end; background:var(--ink); color:var(--card); border-bottom-right-radius:6px; }
+  .msg.me:not(:first-child) { margin-top:10px; }
   .msg.ai { align-self:flex-start; background:var(--soft); border-bottom-left-radius:6px; }
   .msg.err { background:#fdecea; color:var(--bad); }
-  .msg.busy { color:var(--mute); animation:pulse 1.2s ease-in-out infinite; }
-  .acts { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
-  .acts .chip { background:#fff; }
+  /* thinking: three dots; the "Thinking…" text stays for screen readers */
+  .msg.busy { font-size:0; padding:16px; }
+  .msg.busy::after { content:""; display:block; width:32px; aspect-ratio:4; --g:no-repeat radial-gradient(circle closest-side, var(--mute) 90%, #0000);
+    background:var(--g) 0 50%, var(--g) 50% 50%, var(--g) 100% 50%; background-size:calc(100% / 3) 100%; animation:dots 1s linear infinite; }
+  @keyframes dots {
+    33% { background-size:calc(100% / 3) 0, calc(100% / 3) 100%, calc(100% / 3) 100%; }
+    50% { background-size:calc(100% / 3) 100%, calc(100% / 3) 0, calc(100% / 3) 100%; }
+    66% { background-size:calc(100% / 3) 100%, calc(100% / 3) 100%, calc(100% / 3) 0; }
+  }
+  .acts { display:flex; gap:10px 6px; margin:10px 0 2px; flex-wrap:wrap; }
+  .acts .chip { background:var(--card); font-weight:500; }
+  .composer { display:flex; align-items:center; gap:6px; background:var(--soft); border:1px solid var(--line); border-radius:24px; padding:4px 4px 4px 16px; transition:background-color 150ms, border-color 150ms, box-shadow 150ms; }
+  .composer:focus-within { background:var(--card); border-color:var(--ink); box-shadow:0 0 0 1px var(--ink); }
+  .composer input { flex:1; min-width:0; min-height:38px; border:0; padding:0; background:none; font:inherit; color:var(--ink); }
+  .composer input:focus-visible { outline:none; }
+  .composer input::placeholder { color:var(--mute); }
+  .send { position:relative; flex:none; display:grid; place-items:center; width:38px; height:38px; padding:0; border:0; border-radius:50%; background:var(--ink); color:var(--card); cursor:pointer; }
+  .send::after { content:""; position:absolute; inset:-3px; }  /* 44px hit area */
+  .send .i { stroke-width:2.2; }
+  .send:disabled { background:var(--line); color:var(--mute); cursor:default; }
+  #chatHint { margin-top:12px; }
   .chips { display:flex; gap:10px 6px; flex-wrap:wrap; margin-top:10px; }
   /* 34px pill, 44px hit area; the 10px row gap keeps wrapped hit areas from overlapping */
   .chip { position:relative; border:1px solid var(--line); background:var(--soft); border-radius:999px; padding:0 12px; min-height:34px; font:inherit; font-size:13px; color:var(--ink); cursor:pointer; white-space:nowrap; }
@@ -196,7 +220,7 @@
   #qrBox.on .card { animation:rise 250ms ease-out both; }
   @media (hover:hover) {
     .btn:not(:disabled):hover, .chip:hover, .days button[aria-pressed=false]:hover { border-color:#cfccc5; }
-    .btn.dark:not(:disabled):hover { background:#3a3a3c; }
+    .btn.dark:not(:disabled):hover, .send:not(:disabled):hover { background:#3a3a3c; }
     .tile:not(.on):hover { border-color:#cfccc5; box-shadow:0 2px 8px rgba(0,0,0,.06); }
     .tabs button:not(.on):hover, .pages button:not(.on):hover, .seg button:not(.on):hover, .x:hover { color:var(--ink); }
     .sw:hover, .bulb:hover { scale:1.08; }
@@ -208,6 +232,7 @@
   @media (prefers-reduced-motion:reduce) {
     [data-page], #qrBox .card, #timerSheet .card, .msg.new, .paintbar.on { animation-name:fade !important; }
     .wstep, .scanning { animation:none !important; }
+    .msg.busy::after { animation:pulse 1.6s ease-in-out infinite; }
     * { scale:none !important; }
     input[type=range]::-webkit-slider-thumb { scale:none !important; transition:none; }
     input[type=range]::-webkit-slider-runnable-track { transition:none; }
@@ -342,11 +367,12 @@
 
   <section data-page="control">
   <div class="card" id="askCard" hidden>
-    <div class="head"><h2>Ask Claude</h2><button class="linkbtn" id="newChat" hidden onclick="newChat()">New chat</button></div>
-    <div class="log" id="log" hidden aria-live="polite"></div>
-    <form class="ask" id="askForm">
-      <input id="askText" placeholder="Make it slower and more gold…" autocomplete="off" enterkeyhint="send">
-      <button class="btn dark" id="askBtn">Send</button>
+    <div class="head"><h2>Ask Claude</h2><button class="linkbtn" id="newChat" hidden onclick="newChat()"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New chat</button></div>
+    <div class="logbox"><div class="log" id="log" hidden aria-live="polite"></div></div>
+    <p class="chat-empty">Describe a look or a schedule, and Claude sets it up.</p>
+    <form class="composer" id="askForm">
+      <input id="askText" placeholder="Make it slower and more gold…" aria-label="Ask Claude" autocomplete="off" enterkeyhint="send">
+      <button class="send" id="askBtn" aria-label="Send"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
     </form>
     <div class="chips" id="chips"></div>
     <div class="hint" id="chatHint" hidden>Claude forgets this chat after 5 quiet minutes, so each ask stays cheap.</div>
@@ -474,7 +500,7 @@ async function post(path, body, okMsg) {
     const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({light, ...body})});
     const j = await r.json();
     if (j.error) toast(j.error, true); else if (okMsg) toast(okMsg);
-    refresh(); return j;
+    await refresh(); return j;
   } catch (e) { toast(OFFLINE, true); }
 }
 const set = (s, msg) => post('/api/set', {settings: s}, msg || `Updated ${where()}`);
@@ -871,7 +897,8 @@ function drawTabs() {
 }
 function fixLight() {  // keep the picked light valid when lights are added, renamed or forgotten
   const ok = k => !!state.lights[k] || (k === 'all' && ids().length > 1);
-  if (ok(light) || !ids().length) return;
+  if (!ids().length) { light = ''; return; }
+  if (ok(light)) return;
   let saved; try { saved = localStorage.light; } catch (_) {}
   pickTab(ok(saved) ? saved : ids()[0]);
 }
@@ -936,10 +963,10 @@ function drawOutside(data) {
   $('outsideEvents').replaceChildren(...events);
 }
 // setup: name the lights the LAN scan found; later, rename or forget them. The first run wraps it in a short welcome.
-let setupOpen = false, setupKey = '', typed = {}, wsteps = null, wat = 0, scanning = false;
+let setupOpen = false, setupKey = '', typed = {}, wsteps = null, wat = 0, scanning = false, welcomeDone = false;
 function openSetup() { setupOpen = true; setupKey = ''; typed = {}; drawSetup(); showSetup(); }
 function openWelcome() { wsteps = ['hello', 'find', ...(state.claude ? ['claude'] : []), 'done']; wat = 0; openSetup(); }
-function closeSetup() { setupOpen = false; wsteps = null; showSetup(); }
+function closeSetup() { setupOpen = false; wsteps = null; welcomeDone = true; showSetup(); }
 function step(d) { wat += d; showSetup(); if (d > 0 && wsteps[wat] === 'find') scan(); }
 function showSetup() {
   const w = wsteps && wsteps[wat];
@@ -947,7 +974,8 @@ function showSetup() {
   document.querySelectorAll('.wstep').forEach(s => s.hidden = s.dataset.step !== (w || 'find'));
   $('wBack').parentElement.hidden = !w; $('wBack').style.visibility = wat ? '' : 'hidden';
   if (w) { $('dots').replaceChildren(...wsteps.map((_, i) => Object.assign(document.createElement('span'), {className: i === wat ? 'on' : ''}))); $('dots').setAttribute('aria-label', `Step ${wat + 1} of ${wsteps.length}`); }
-  $('app').hidden = $('footApp').hidden = setupOpen; $('setupDone').hidden = !ids().length || !!w; drawTabs();
+  $('app').hidden = $('footApp').hidden = setupOpen; $('setupDone').hidden = !!w && ids().length > 0;
+  $('setupDone').textContent = ids().length ? 'Done' : 'Use without lights'; drawTabs();
   if (setupOpen) scrollTo(0, 0);
 }
 async function useAsk(use) {
@@ -1043,6 +1071,7 @@ function expireIn(s) { clearTimeout(chatTimer); if (s) chatTimer = setTimeout(()
 async function newChat() { const j = await post('/api/chat/clear', {}, 'New chat'); if (j && j.ok) drawChat({turns: []}); }
 async function ask(text) {
   $('askBtn').disabled = true; $('askText').value = '';
+  await refresh(); fixLight();
   $('log').querySelectorAll('.acts').forEach(x => x.remove());
   bubble('me', text, true); const b = bubble('ai', 'Thinking…', true); b.classList.add('busy'); $('log').scrollTop = $('log').scrollHeight;
   const j = await post('/api/ask', {text}, null);
@@ -1077,8 +1106,9 @@ async function refresh() {
   $('feedback').href = feedbackURL();
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
   $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
-  if (!ids().length && !setupOpen) openWelcome();
-  if (setupOpen) { drawSetup(); $('setupDone').hidden = !ids().length || !!wsteps; }
+  if (ids().length) welcomeDone = true;
+  if (!ids().length && !setupOpen && !welcomeDone) openWelcome();
+  if (setupOpen) { drawSetup(); $('setupDone').hidden = !!wsteps && ids().length > 0; }
   fixLight(); drawTabs(); syncControls(); draw();
 }
 async function poll() { await refresh(); setTimeout(poll, document.hidden ? 2000 : 150); }
