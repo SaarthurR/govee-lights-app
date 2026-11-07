@@ -238,8 +238,22 @@
     input[type=range]::-webkit-slider-runnable-track { transition:none; }
     #toast { transform:translate(-50%, 0); }
   }
+  #addLights { margin-right:auto; }
+  .pane { display:contents; }
+  /* wide windows: every page at once in two columns, so no page tabs */
+  @media (min-width:1000px) {
+    main { max-width:1400px; padding-inline:32px; }
+    #app { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; align-items:start; }
+    #app .pages { display:none; }
+    .pane { display:flex; flex-direction:column; min-width:0; }
+    #app [data-page][hidden] { display:block !important; }
+    [data-page=schedule] { order:-1; }
+    #account, #setup:not(.welcome) { max-width:640px; margin-inline:auto; }
+  }
   @media (max-width:560px) {
     .head-right > .btn { display:none; }
+    #addLights { margin-right:0; }
+    .head-right { width:100%; }
     /* one swipeable row instead of 2-3 wrapped rows; bleeds to the card edge and fades there */
     #chips, .swatches { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin-left:-16px; margin-right:-16px; padding:0 16px; overscroll-behavior-x:contain;
       -webkit-mask:linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 24px), transparent); mask:linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 24px), transparent); }
@@ -254,7 +268,6 @@
     main { padding-bottom:calc(100px + env(safe-area-inset-bottom)); }
     #toast { bottom:calc(92px + env(safe-area-inset-bottom)); }
     .head-right { flex-direction:column; align-items:stretch; }
-    header { flex-direction:column; align-items:stretch; }
     .tabs button { flex:1; }
     .strip { grid-template-columns:repeat(12, minmax(0, 1fr)); gap:4px; }
     .fx { flex-direction:column; align-items:stretch; gap:4px !important; }
@@ -268,6 +281,7 @@
 <main>
   <header>
     <h1>Lights</h1>
+    <button class="linkbtn" id="addLights" onclick="addLights()" title="Find lights on your Wi-Fi, or rename and forget saved ones"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add lights</button>
     <div class="head-right">
     <div class="tabs" id="tabs" hidden></div>
     <button class="btn" onclick="showQR()">Open on phone</button>
@@ -341,6 +355,11 @@
     <button data-p="schedule"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/></svg>Schedule</button>
   </nav>
 
+  <div class="pane">
+  <div class="card" id="noLights" hidden>
+    <div class="summary">No lights yet<small>Find the Govee lights on your Wi-Fi, then give each one a name.</small></div>
+    <button class="btn dark" style="margin-top:14px" onclick="addLights()">Find lights</button>
+  </div>
   <div class="card">
     <div class="head">
       <h2>Live <span class="sub" data-advanced>· tap bulbs to recolor</span></h2>
@@ -398,7 +417,9 @@
     <div class="grid" id="effects"></div>
   </div>
   </section>
+  </div>
 
+  <div class="pane">
   <section data-page="themes" hidden>
   <div class="card">
     <h2>My themes</h2>
@@ -445,6 +466,7 @@
   </div>
   </section>
   </div>
+  </div>
   <dialog id="timerSheet" aria-labelledby="timerTitle"><div class="card">
     <h2 id="timerTitle">Add timer</h2>
     <div class="seg" id="actSeg"><button data-v="on">Turn on</button><button data-v="off">Turn off</button></div>
@@ -468,6 +490,7 @@
     <button class="linkbtn" onclick="openSetup()">Manage lights</button>
     <button class="linkbtn" id="askUse" onclick="useAsk(!state.ask)" hidden></button>
     <span id="askGet" style="width:100%;order:1" hidden>Ask Claude needs <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a> on this computer.</span></span>
+    <label><input type="checkbox" id="autoUpdate" checked onchange="post('/api/update', {enabled:this.checked})"> Auto-update <span id="appVersion" class="small"></span></label>
     <button class="linkbtn" id="settingsBtn" onclick="toggleAccount()">Govee account</button>
     <a id="feedback" class="small" href="https://github.com/SaarthurR/govee-lights-app/issues/new?labels=feedback" target="_blank" rel="noopener noreferrer">Send feedback</a></p>
 </main>
@@ -876,7 +899,7 @@ SWATCHES.forEach(([name, c]) => {
   $('swatches').appendChild(b);
 });
 CHIPS.forEach(t => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = t; c.onclick = () => ask(t); $('chips').appendChild(c); });
-function pickTab(k) { light = k; if (!document.querySelector('[data-page=themes]').hidden) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); shownColors = ''; syncControls(); draw(); }
+function pickTab(k) { light = k; if (document.querySelector('[data-page=themes]').offsetParent) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); shownColors = ''; syncControls(); draw(); }
 function showPage(p) {
   document.querySelectorAll('[data-page]').forEach(x => x.hidden = x.dataset.page !== p);
   document.querySelectorAll('#pages button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
@@ -965,6 +988,7 @@ function drawOutside(data) {
 // setup: name the lights the LAN scan found; later, rename or forget them. The first run wraps it in a short welcome.
 let setupOpen = false, setupKey = '', typed = {}, wsteps = null, wat = 0, scanning = false, welcomeDone = false;
 function openSetup() { setupOpen = true; setupKey = ''; typed = {}; drawSetup(); showSetup(); }
+function addLights() { openSetup(); scan(); }
 function openWelcome() { wsteps = ['hello', 'find', ...(state.claude ? ['claude'] : []), 'done']; wat = 0; openSetup(); }
 function closeSetup() { setupOpen = false; wsteps = null; welcomeDone = true; showSetup(); }
 function step(d) { wat += d; showSetup(); if (d > 0 && wsteps[wat] === 'find') scan(); }
@@ -974,7 +998,7 @@ function showSetup() {
   document.querySelectorAll('.wstep').forEach(s => s.hidden = s.dataset.step !== (w || 'find'));
   $('wBack').parentElement.hidden = !w; $('wBack').style.visibility = wat ? '' : 'hidden';
   if (w) { $('dots').replaceChildren(...wsteps.map((_, i) => Object.assign(document.createElement('span'), {className: i === wat ? 'on' : ''}))); $('dots').setAttribute('aria-label', `Step ${wat + 1} of ${wsteps.length}`); }
-  $('app').hidden = $('footApp').hidden = setupOpen; $('setupDone').hidden = !!w && ids().length > 0;
+  $('app').hidden = $('footApp').hidden = $('addLights').hidden = setupOpen; $('setupDone').hidden = !!w && ids().length > 0;
   $('setupDone').textContent = ids().length ? 'Done' : 'Use without lights'; drawTabs();
   if (setupOpen) scrollTo(0, 0);
 }
@@ -1100,12 +1124,19 @@ function showQR() {
 }
 function hideQR() { if (!$('qrBox').classList.contains('on')) return; $('qrBox').classList.remove('on'); document.querySelector('[onclick="showQR()"]').focus(); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQR(); });
+let disconnected = false, serverVersion = '';
 async function refresh() {
   try { state = await (await fetch('/api/state')).json(); syncControls(); draw(); }
-  catch (e) { alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
+  catch (e) { disconnected = true; alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
+  if (disconnected) { alertUI('', false); disconnected = false; }
+  if (serverVersion && state.update?.version !== serverVersion) { location.reload(); return; }
+  serverVersion = state.update?.version || '';
   $('feedback').href = feedbackURL();
+  $('autoUpdate').checked = state.update?.enabled !== false;
+  $('appVersion').textContent = (state.update?.version || state.version).slice(0, 12);
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
   $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
+  $('noLights').hidden = ids().length > 0;
   if (ids().length) welcomeDone = true;
   if (!ids().length && !setupOpen && !welcomeDone) openWelcome();
   if (setupOpen) { drawSetup(); $('setupDone').hidden = !!wsteps && ids().length > 0; }

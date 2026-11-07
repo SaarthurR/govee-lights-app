@@ -54,11 +54,25 @@ delete context.state.lights.b; context.fixLight(); assert.equal(context.light, '
   assert.equal(elements.app.hidden, false);
   let welcomes = 0;
   context.openWelcome = () => { welcomes++; };
-  context.fetch = async () => ({json: async () => ({lights: {}, claude: true, ask: true})});
-  vm.runInContext(extract('async function refresh()', 'async function poll()'), context);
+  context.fetch = async () => ({json: async () => ({lights: {}, claude: true, ask: true, version: "test"})});
+  vm.runInContext(extract('let disconnected =', 'async function poll()'), context);
   await context.refresh(); await context.refresh();
   assert.equal(welcomes, 0);
   assert.equal(elements.askCard.hidden, false);
+  assert.equal(elements.noLights.hidden, false); // skipped setup still offers Find lights
+  let reloaded = 0, cleared = 0;
+  context.location = {reload() { reloaded++; }};
+  context.alertUI = message => { if (!message) cleared++; };
+  context.fetch = async () => { throw Error('restarting'); };
+  await context.refresh();
+  context.fetch = async () => ({json: async () => ({lights: {}, update: {version: 'old', enabled: false}})});
+  await context.refresh();
+  assert.equal(cleared, 1);
+  assert.equal(elements.autoUpdate.checked, false);
+  context.fetch = async () => ({json: async () => ({lights: {}, update: {version: 'new', enabled: true}})});
+  await context.refresh();
+  assert.equal(reloaded, 1); // Fetch the new page after the updated server starts.
+
 
   // Sending immediately after setup waits for refresh before choosing a light.
   context.state = {lights: {}}; context.light = '';
