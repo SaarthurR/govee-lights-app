@@ -75,7 +75,7 @@ def serve(config):
                 if child.poll() is not None:
                     break
                 try:
-                    with urlopen(f'http://localhost:{port}/api/state', timeout=1):
+                    with urlopen(f'http://127.0.0.1:{port}/api/state', timeout=1):
                         return
                 except OSError:
                     time.sleep(.5)
@@ -119,11 +119,12 @@ def ensure_server(config):
     for _ in range(120):
         handle = server_lock()
         if handle is None:
-            url = 'http://localhost:' + (HERE / '.port').read_text().strip()
+            port = (HERE / '.port').read_text().strip()
             try:
-                with urlopen(url + '/api/state', timeout=1) as response:
+                # 127.0.0.1: the server is IPv4-only and Windows takes ~2 s to refuse localhost's ::1 first.
+                with urlopen(f'http://127.0.0.1:{port}/api/state', timeout=1) as response:
                     if response.status == 200:
-                        return url
+                        return 'http://localhost:' + port
             except OSError:
                 pass
         else:

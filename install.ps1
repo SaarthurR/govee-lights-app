@@ -8,18 +8,19 @@ function Install-Lights {
   $taskName = 'Govee Lights'
   $shortcuts = @((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Govee Lights.lnk'),
                  (Join-Path ([Environment]::GetFolderPath('Programs')) 'Govee Lights.lnk'))
-  $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-  if ($task -and -not $UpdateOnly) {
-    Stop-ScheduledTask -TaskName $taskName
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-    Start-Sleep 1
-  }
+  # Stop through the launcher first: stopping the task kills only the launcher, leaving server.py on the port.
   if (-not $UpdateOnly -and (Test-Path "$dir/.launcher.json")) {
     $previous = Get-Content "$dir/.launcher.json" -Raw | ConvertFrom-Json
     if ($previous.python) {
       & $previous.python "$dir/launcher/launch.py" --stop
       if ($LASTEXITCODE -ne 0) { throw 'Lights is still running; try again.' }
     }
+  }
+  $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  if ($task -and -not $UpdateOnly) {
+    Stop-ScheduledTask -TaskName $taskName
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    Start-Sleep 1
   }
   if ($Uninstall -or $Purge) {
     $shortcuts | Where-Object { Test-Path $_ } | Remove-Item -Force
@@ -44,8 +45,11 @@ function Install-Lights {
   New-Item -ItemType Directory $tmp | Out-Null
   try {
     $version = $env:GOVEE_VERSION
-    if (-not $version -and -not $env:GOVEE_ZIP) { $version = (Invoke-RestMethod 'https://api.github.com/repos/SaarthurR/govee-lights-app/commits/main').sha }
-    $url = if ($env:GOVEE_ZIP) { $env:GOVEE_ZIP } else { "https://github.com/SaarthurR/govee-lights-app/archive/$version.zip" }
+    if (-not $version -and -not $env:GOVEE_ZIP) {
+      # The GitHub API can rate-limit; then install main and let auto-update record the commit later.
+      try { $version = (Invoke-RestMethod 'https://api.github.com/repos/SaarthurR/govee-lights-app/commits/main').sha } catch { $version = $null }
+    }
+    $url = if ($env:GOVEE_ZIP) { $env:GOVEE_ZIP } else { "https://github.com/SaarthurR/govee-lights-app/archive/$(if ($version) { $version } else { 'main' }).zip" }
     Invoke-WebRequest $url -OutFile "$tmp/app.zip" -UseBasicParsing
     Expand-Archive "$tmp/app.zip" "$tmp/app"
     $source = (Get-ChildItem "$tmp/app")[0].FullName

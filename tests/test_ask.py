@@ -202,12 +202,12 @@ class AskChecks(unittest.TestCase):
 
     def test_http_selection_lifecycle(self):
         # Exercise the real handler; only the paid model call is stubbed.
-        http = app.ThreadingHTTPServer(("localhost", 8771), app.H)
+        http = app.Server(("127.0.0.1", 8771), app.H)
         thread = threading.Thread(target=http.serve_forever, daemon=True)
         thread.start()
         answer = dict(say="Ready", actions=[])
         def post(light, text="question"):
-            req = app.request.Request("http://localhost:8771/api/ask", data=json.dumps(dict(light=light, text=text)).encode(),
+            req = app.request.Request("http://127.0.0.1:8771/api/ask", data=json.dumps(dict(light=light, text=text)).encode(),
                                       headers={"Content-Type": "application/json"})
             try:
                 with app.request.urlopen(req) as r:
@@ -242,16 +242,17 @@ class AskChecks(unittest.TestCase):
             def __init__(self, *a): pass
             setsockopt = bind = settimeout = close = lambda self, *a: None
             def sendto(self, *a): raise OSError(errno.EHOSTUNREACH, "No route to host")
-        with patch.object(app, "DRY", False), patch.object(app.socket, "socket", Blocked), patch.object(app.time, "time", side_effect=itertools.count(0, 2)):
+        with patch.object(app, "DRY", False), patch.object(app, "lan_asked", True), patch.object(app.socket, "socket", Blocked), \
+                patch.object(app.time, "time", side_effect=itertools.count(0, 2)):
             with self.assertRaises(OSError):
                 app.discover()
-        http = app.ThreadingHTTPServer(("localhost", 8772), app.H)
+        http = app.Server(("127.0.0.1", 8772), app.H)
         thread = threading.Thread(target=http.serve_forever, daemon=True)
         thread.start()
         blocked = OSError(errno.EHOSTUNREACH, "No route to host")
         try:
             for platform, expected in (("darwin", app.LAN_BLOCKED), ("linux", f"Server error: {blocked}")):
-                req = app.request.Request("http://localhost:8772/api/scan", data=b"{}", headers={"Content-Type": "application/json"})
+                req = app.request.Request("http://127.0.0.1:8772/api/scan", data=b"{}", headers={"Content-Type": "application/json"})
                 with patch.object(app.sys, "platform", platform), patch.object(app, "discover", side_effect=blocked), \
                         self.assertRaises(app.error.HTTPError) as caught:
                     app.request.urlopen(req)
@@ -259,6 +260,61 @@ class AskChecks(unittest.TestCase):
                     self.assertEqual(json.load(e)["error"], expected)
         finally:
             http.shutdown(); http.server_close(); thread.join()
+
+    def test_mac_no_lan_send_before_continue(self):
+        sent, fail = [], []
+        class Recorder:  # a real (not DRY) socket that only writes down where packets would go
+            def __init__(self, *a): pass
+            setsockopt = bind = settimeout = close = lambda self, *a: None
+            __enter__ = lambda self: self
+            __exit__ = lambda self, *a: None
+            def sendto(self, data, addr):
+                if fail: raise OSError(fail[0], "fake")
+                sent.append(addr)
+            def recvfrom(self, n): raise TimeoutError
+        real = app.socket.socket
+        udp = lambda family=-1, kind=-1, *a, **k: Recorder() if kind == app.socket.SOCK_DGRAM else real(family, kind, *a, **k)
+        def state():
+            with app.request.urlopen("http://127.0.0.1:8773/api/state") as r:
+                return json.load(r)["lan"]
+        a = self.keys[0]
+        app.schedule[a]["timers"] = [app.clean_timer({"time": "18:00", "action": "on"})]
+        six = app.dt.datetime.combine(app.dt.date.today(), app.dt.time(18))
+        http = app.Server(("127.0.0.1", 8773), app.H)
+        threading.Thread(target=http.serve_forever, daemon=True).start()
+        try:
+            with patch.object(app, "DRY", False), patch.object(app.sys, "platform", "darwin"), patch.object(app, "lan_asked", False), \
+                    patch.object(app, "lan_seen", (-9.0, "unknown")), patch.object(app.socket, "socket", udp), patch.object(app, "sock", Recorder()), \
+                    patch.object(app.time, "time", side_effect=itertools.count(0, 2)), patch.object(app, "APP_BIN", Path(self.tmp.name) / "Govee Lights"):
+                app.wake()  # the startup scan and reconnect
+                app.schedule_tick(six - app.dt.timedelta(minutes=1), six)
+                for call in (app.discover, lambda: app.razer(a, app.ARM), lambda: list(app.statuses(["192.168.0.9"]))):
+                    with self.assertRaises(OSError):
+                        call()
+                self.assertEqual(state(), {"asked": False, "allowed": "unknown", "fallback": False})
+                self.assertEqual(sent, [])  # nothing on the Wi-Fi, so macOS has not asked yet
+                req = app.request.Request("http://127.0.0.1:8773/api/network", data=b"{}", headers={"Content-Type": "application/json"})
+                app.request.urlopen(req).close()
+                for t in threading.enumerate():
+                    if getattr(t, "_target", None) is app.wake:
+                        t.join()
+                self.assertIn(("239.255.255.250", 4001), sent)  # Continue scans, which is what makes macOS ask
+                self.assertTrue(json.loads(app.SAVE.read_text())["_lan_asked"])
+                fail.append(errno.EHOSTUNREACH)
+                self.assertEqual(state(), {"asked": True, "allowed": False, "fallback": False})
+                app.APP_BIN.write_text("#!/bin/sh\n")  # the no-swiftc build
+                self.assertTrue(state()["fallback"])
+                fail[:] = [errno.ENETUNREACH]; app.lan_seen = (-9.0, False)
+                self.assertEqual(state()["allowed"], "unknown")  # no Wi-Fi is not a denial
+                fail.clear(); app.lan_seen = (-9.0, False)
+                with patch.object(app, "wake") as wake:
+                    self.assertTrue(state()["allowed"])
+                    threading.Event().wait(.05); wake.assert_called_once()  # just allowed: the lights come back
+                    self.assertIn(("239.255.255.250", 9), sent)
+            with patch.object(app.sys, "platform", "linux"):
+                self.assertEqual(state(), {"asked": True, "allowed": True, "fallback": False})
+        finally:
+            http.shutdown(); http.server_close()
 
 
 if __name__ == "__main__":
