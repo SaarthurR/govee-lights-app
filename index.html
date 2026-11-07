@@ -6,8 +6,10 @@
 <meta name="theme-color" content="#f6f5f2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Lights">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/docs/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/docs/icon.svg">
 <title>Lights</title>
-<link rel="icon" href="data:,">
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
   :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1f; --mute:#66666b; --line:#e8e6e1; --soft:#f1efeb; --bad:#c0392b; --ease-out:cubic-bezier(.23, 1, .32, 1); }
@@ -252,6 +254,7 @@
       <h2>Scan with your phone camera</h2>
       <div id="qr"></div>
       <a id="qrLink"></a>
+      <div class="hint" id="qrIP"></div>
       <div class="hint">Your phone must be on the same Wi-Fi as this computer.</div>
       <button class="btn" style="margin-top:12px;width:100%" onclick="hideQR()">Done</button>
     </div>
@@ -439,7 +442,8 @@
     <button class="linkbtn" onclick="openSetup()">Manage lights</button>
     <button class="linkbtn" id="askUse" onclick="useAsk(!state.ask)" hidden></button>
     <span id="askGet" style="width:100%;order:1" hidden>Ask Claude needs <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a> on this computer.</span></span>
-    <button class="linkbtn" id="settingsBtn" onclick="toggleAccount()">Govee account</button></p>
+    <button class="linkbtn" id="settingsBtn" onclick="toggleAccount()">Govee account</button>
+    <a id="feedback" class="small" href="https://github.com/SaarthurR/govee-lights-app/issues/new?labels=feedback" target="_blank" rel="noopener noreferrer">Send feedback</a></p>
 </main>
 <script>
 let govee = {connected:false, devices:[]}, sceneRead = 0;
@@ -1050,8 +1054,16 @@ async function ask(text) {
 fetch('/api/chat').then(r => r.json()).then(drawChat).catch(() => {});
 $('askForm').onsubmit = e => { e.preventDefault(); const t = $('askText').value.trim(); if (t) ask(t); };
 
+function feedbackURL() {
+  const ua = navigator.userAgent;
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : 'Other';
+  const browser = /Edg/.test(ua) ? 'Edge' : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /Chrome|CriOS/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : 'Other';
+  const models = [...new Set([...Object.values(state?.lights || {}), ...(state?.found || [])].map(d => d.sku).filter(s => /^H[A-Z0-9]{4}$/.test(s)))].sort().join(', ') || 'None';
+  return 'https://github.com/SaarthurR/govee-lights-app/issues/new?' + new URLSearchParams({labels:'feedback', title:'Lights feedback', body:`App: ${state?.version || 'Unknown'}\nOS: ${os}\nBrowser: ${browser}\nModels: ${models}\n\nWhat happened:\n\nWhat you expected:\n`});
+}
 function showQR() {
   const url = (state && state.phone) || location.href;
+  $('qrIP').textContent = state?.phone_ip ? 'IP fallback: ' + state.phone_ip : '';
   $('qr').innerHTML = ''; $('qrLink').textContent = url; $('qrLink').href = url;
   if (window.QRCode) new QRCode($('qr'), {text:url, width:220, height:220});
   else $('qr').textContent = 'QR needs internet. Type the link instead:';
@@ -1062,6 +1074,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQR(); })
 async function refresh() {
   try { state = await (await fetch('/api/state')).json(); syncControls(); draw(); }
   catch (e) { alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
+  $('feedback').href = feedbackURL();
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
   $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
   if (!ids().length && !setupOpen) openWelcome();

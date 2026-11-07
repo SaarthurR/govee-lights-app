@@ -50,13 +50,27 @@ On Windows, paste this into PowerShell:
 irm https://raw.githubusercontent.com/SaarthurR/govee-lights-app/main/install.ps1 | iex
 ```
 
-It checks for Python 3.10 or newer, downloads this repo into `govee-lights` in your home folder (no git needed), starts the app and opens it in your browser. Run it again to start or update the app; your lights and themes are kept. Read it first: [install.sh](install.sh), [install.ps1](install.ps1).
+It checks for Python 3.10 or newer, downloads this repo into `govee-lights` in your home folder (no git needed), starts the app and opens it in your browser. It starts at login and restarts after a crash (LaunchAgent on macOS, systemd user service on Linux, Scheduled Task on Windows; no admin). Run the command again to update; your lights and themes are kept. Linux without a working systemd user session runs in the foreground. Read it first: [install.sh](install.sh), [install.ps1](install.ps1).
+
+### Uninstall
+
+Mac / Linux (keeps `~/govee-lights/state.json`; add `--purge` to remove it):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SaarthurR/govee-lights-app/main/install.sh | sh -s -- --uninstall
+```
+
+Windows (keeps state; add `-Purge` to remove it):
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/SaarthurR/govee-lights-app/main/install.ps1))) -Uninstall
+```
 
 Or clone the repo, then in its folder run `python3 server.py` (on Windows: `py server.py`) and open <http://localhost:8765>.
 
 1. In the Govee Home app, open your light, tap the settings gear and turn on **LAN Control**. Do this for each light.
 2. The welcome screen finds the lights on your Wi-Fi. Click **Flash** next to one to make it blink, then give each one a name.
-3. On the computer, click **Open on phone** and scan the code with your phone camera. The phone must be on the same Wi-Fi. On iPhone, tap Share, then **Add to Home Screen**.
+3. **Open it on your phone:** on the computer, click **Open on phone** and scan the code with your phone camera, then **Share → Add to Home Screen**. The phone must be on the same Wi-Fi. The link uses the computer’s `.local` name when it resolves; an IP fallback appears below the code.
 
 To rename or remove a light later, use **Manage lights** at the bottom of the page.
 
@@ -71,6 +85,8 @@ To rename or remove a light later, use **Manage lights** at the bottom of the pa
 **Lights turn on or off by themselves.** Timers made in the Govee Home app keep running, and Govee doesn't let other apps read them. Check Timer and Automation for that light in Govee Home. To use only Govee's timers for a light, turn off **Use this app's schedule** on the Schedule page; your timers here stay saved. When something else changes a light, this app stops streaming to it until you tap a look or **Reconnect**, and warns you if it keeps happening at the same time.
 
 **The phone can't open the page.** Use the same Wi-Fi as the computer, and allow incoming connections on port 8765 in its firewall.
+
+Use **Send feedback** at the bottom of the page to open a GitHub issue draft. It includes only the app date, OS, browser and model SKUs. A GitHub account is needed to submit it.
 
 ## How it works
 

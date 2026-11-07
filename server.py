@@ -1095,7 +1095,17 @@ def apply_answer(answer, keys):
 
 
 PREVIEWS = None
-PHONE = "http://localhost:8765"
+PHONE = f"http://localhost:{PORT}"
+PHONE_IP = PHONE
+VERSION = dt.datetime.fromtimestamp((HERE / "server.py").stat().st_mtime, dt.timezone.utc).strftime("%Y-%m-%d")
+
+def phone_address(ip):
+    name = socket.gethostname().split(".")[0] + ".local"
+    try:
+        socket.gethostbyname(name)
+    except OSError:
+        return f"http://{ip}:{PORT}"
+    return f"http://{name}:{PORT}"
 
 
 class H(BaseHTTPRequestHandler):
@@ -1134,11 +1144,14 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history"} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d | {"capabilities": capability(k)}
                                                for k, d in saved if k in st},
                                     "found": [{"id": k, "sku": d["sku"], "short": short(k)} for k, d in found.items() if k not in lights],
-                                    "n": N, "phone": PHONE, "claude": CLAUDE, "ask": ask_on})
+                                    "n": N, "phone": PHONE, "phone_ip": PHONE_IP, "version": VERSION, "claude": CLAUDE, "ask": ask_on})
         if self.path == "/api/previews":
             return self.reply(200, PREVIEWS)
         if self.path.split("?")[0] in ("/", "/index.html"):
             return self.reply(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if self.path in ("/manifest.json", "/docs/icon.svg"):
+            return self.reply(200, (HERE / self.path[1:]).read_bytes(),
+                              "application/manifest+json" if self.path.endswith(".json") else "image/svg+xml")
         self.reply(404, {"error": "not found"})
 
     def do_POST(self):
@@ -1463,7 +1476,8 @@ if __name__ == "__main__":
         u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); u.connect(("8.8.8.8", 80)); me = u.getsockname()[0]; u.close()
     except OSError:
         pass
-    PHONE = f"http://{me}:{PORT}"
+    PHONE_IP = f"http://{me}:{PORT}"
+    PHONE = phone_address(me)
     for k, s in st.items():  # bring back the saved look
         if s["on"] and k not in paused:
             reconnect(k)
@@ -1471,5 +1485,5 @@ if __name__ == "__main__":
     threading.Thread(target=rediscover_loop, daemon=True).start()
     threading.Thread(target=schedule_loop, daemon=True).start()
     threading.Thread(target=status_loop, daemon=True).start()
-    print(f"Govee app: http://localhost:{PORT}   phone (same Wi-Fi): http://{me}:{PORT}" + ("   DRY RUN, lights untouched" if DRY else "") + "   Ctrl+C to stop.")
+    print(f"Govee app: http://localhost:{PORT}   phone (same Wi-Fi): {PHONE}" + ("   DRY RUN, lights untouched" if DRY else "") + "   Ctrl+C to stop.")
     ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()
