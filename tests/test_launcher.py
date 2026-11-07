@@ -1,7 +1,6 @@
 """Offline launcher/update checks. Only temporary HOME, fake server and ports 8771+."""
 import importlib.util
 import json
-import os
 from pathlib import Path
 import shutil
 import socket
@@ -12,10 +11,11 @@ import time
 import unittest
 from unittest.mock import patch
 
-SOURCE = Path(__file__).parent
+SOURCE = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('lights_update', SOURCE / 'launcher/update.py')
 update = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(update)
+UPDATE = {'--update-only', '-UpdateOnly'}  # install.sh / install.ps1
 
 
 class LauncherTests(unittest.TestCase):
@@ -46,7 +46,7 @@ class LauncherTests(unittest.TestCase):
             self.assertFalse(update.check(self.config))  # daily throttle
             self.assertEqual(len(runs), 1)
             def fail(command, **kwargs):
-                if '--update-only' in command:
+                if UPDATE & set(command):
                     (self.root / '.version').write_text('broken')
                     (self.root / 'extra.py').touch()
                     raise subprocess.CalledProcessError(1, command)
@@ -70,7 +70,7 @@ class LauncherTests(unittest.TestCase):
             if len(calls) == 1:
                 raise RuntimeError('new server failed')
         def install(command, **kwargs):
-            if '--update-only' in command:
+            if UPDATE & set(command):
                 (self.root / '.version').write_text('b' * 40)
         with patch.object(update.subprocess, 'run', side_effect=install):
             self.assertFalse(update.check(self.config, restart=restart))
@@ -82,16 +82,16 @@ class LauncherTests(unittest.TestCase):
         (self.root / '.launcher.json').write_text(json.dumps(self.config))
         update.set_enabled(False)
         (self.root / 'server.py').write_text('''import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
+from socketserver import TCPServer
 from pathlib import Path
 Path('started').open('a').write('start' + chr(10))
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
     def log_message(self, *args): pass
-Path('child-pid').write_text(str(os.getpid()))
-HTTPServer.allow_reuse_address = True
-HTTPServer(('127.0.0.1', int(os.environ['PORT'])), H).serve_forever()
+TCPServer.allow_reuse_address = True
+TCPServer(('127.0.0.1', int(os.environ['PORT'])), H).serve_forever()
 ''')
         for port in range(8771, 8900):
             busy = socket.socket()
@@ -120,15 +120,14 @@ HTTPServer(('127.0.0.1', int(os.environ['PORT'])), H).serve_forever()
             self.assertEqual(urls, [f'http://localhost:{port + 1}'] * 3)
             self.assertEqual((self.root / 'started').read_text(), 'start\n')
         finally:
-            service.terminate()
+            subprocess.run(command + ['--stop'], check=True, timeout=30)
             service.wait(timeout=15)
-            subprocess.run(command + ['--stop'], check=True, timeout=15)
             for process in procs:
                 if process.poll() is None:
                     process.terminate()
                 process.communicate(timeout=5)
-        with self.assertRaises(ProcessLookupError):
-            os.kill(int((self.root / 'child-pid').read_text()), 0)
+        with self.assertRaises(OSError):  # the server child stopped too
+            socket.create_connection(('127.0.0.1', port + 1), timeout=1).close()
 
 
 if __name__ == '__main__':

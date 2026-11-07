@@ -1,8 +1,8 @@
-// Run with node test_feedback.js; no browser or dependencies needed.
+// Run with node tests/test_feedback.js; no browser or dependencies needed.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync(`${__dirname}/index.html`, 'utf8').split('function feedbackURL() {')[1].split('\nfunction showQR()')[0];
+const source = fs.readFileSync(`${__dirname}/../index.html`, 'utf8').split('function feedbackURL() {')[1].split('\nfunction showQR()')[0];
 const context = {
   navigator: {userAgent: 'Mozilla/5.0 (iPhone) AppleWebKit Safari'}, URLSearchParams,
   state: {version: '2026-11-07', phone: 'http://private-host.local:8768', lights: {

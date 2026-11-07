@@ -195,6 +195,15 @@
   .wline, #setup.welcome .setup-intro { font-size:18px; color:var(--mute); margin:0; text-wrap:pretty; }
   #setup.welcome .setup-intro { margin-bottom:24px; }
   .wgo { width:100%; margin-top:36px; }
+  /* a look-alike of the macOS Local Network alert, so the real one is no surprise */
+  .mock { width:min(100%, 272px); margin:32px auto 24px; padding:20px 16px 16px; border-radius:20px; background:var(--card); box-shadow:0 12px 32px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.1); text-align:center; font-size:12px; line-height:1.35; color:var(--mute); }
+  .mock img { display:block; width:48px; height:48px; margin:0 auto 10px; }
+  .mock b { display:block; margin-bottom:4px; font-size:13px; color:var(--ink); }
+  .mock div { display:flex; gap:8px; margin-top:14px; }
+  .mock span { flex:1; padding:6px 0; border-radius:8px; background:#e9e8e5; font-size:13px; font-weight:500; color:var(--ink); }
+  .mock .yes { background:#0a84ff; color:#fff; box-shadow:0 0 0 2px var(--card), 0 0 0 4px #0a84ff; }
+  .wstep code { font:14px/1.5 ui-monospace, Menlo, monospace; background:var(--soft); border-radius:6px; padding:1px 6px; overflow-wrap:anywhere; -webkit-user-select:all; user-select:all; }
+  .steps code { display:block; width:fit-content; margin-top:6px; padding:6px 10px; }
   .wstep:not([hidden]) { animation:rise 350ms var(--ease-out) both; }
   .scanning { animation:pulse 1.6s ease-in-out infinite; }
   .foot a { color:var(--ink); }
@@ -318,6 +327,37 @@
     <h1 class="wtitle">Welcome</h1>
     <p class="wline">Control your Govee lights bulb by bulb, right from this page.</p>
     <button class="btn dark wgo" onclick="step(1)">Get started</button>
+  </div>
+  <div class="wstep" data-step="network">
+    <h1 class="wtitle" id="netTitle"></h1>
+    <p class="wline" id="netLine"></p>
+    <div id="netAsk">
+      <div class="mock" aria-hidden="true">
+        <img src="/docs/icon.svg" alt="">
+        <b>“Govee Lights” would like to find devices on your local network.</b>
+        Govee Lights finds and controls the lights on your Wi-Fi.
+        <div><span>Don’t Allow</span><span class="yes">Allow</span></div>
+      </div>
+      <p class="wline">Next, macOS will ask. Click <b>Allow</b>.</p>
+      <button class="btn dark wgo" id="netGo" onclick="allowLan()">Continue</button>
+      <p class="wline wgo scanning" id="netWait" role="status" hidden>Waiting for you to click Allow…</p>
+    </div>
+    <div id="netOff" hidden>
+      <ol class="steps">
+        <li>Open System Settings, then <b>Privacy &amp; Security</b> &gt; <b>Local Network</b>.</li>
+        <li>Turn on <b>Govee Lights</b>.</li>
+      </ol>
+      <button class="btn dark wgo" onclick="post('/api/network/settings', {})">Open Local Network settings</button>
+      <p class="hint">This page goes on by itself once it’s on. Govee Lights not in the list? Run <code>xcode-select --install</code> in Terminal, then run the Lights installer again.</p>
+    </div>
+    <div id="netFix" hidden>
+      <ol class="steps">
+        <li>Open Terminal, run this and finish that install:<code>xcode-select --install</code></li>
+        <li>Run the Lights installer again:<code>curl -fsSL https://raw.githubusercontent.com/SaarthurR/govee-lights-app/main/install.sh | sh</code></li>
+        <li>When macOS asks, click <b>Allow</b>.</li>
+      </ol>
+      <p class="hint">This page goes on by itself once it’s done.</p>
+    </div>
   </div>
   <div class="card wstep" data-step="find">
     <h2 id="setupTitle">Set up your lights</h2>
@@ -989,7 +1029,30 @@ function drawOutside(data) {
 let setupOpen = false, setupKey = '', typed = {}, wsteps = null, wat = 0, scanning = false, welcomeDone = false;
 function openSetup() { setupOpen = true; setupKey = ''; typed = {}; drawSetup(); showSetup(); }
 function addLights() { openSetup(); scan(); }
-function openWelcome() { wsteps = ['hello', 'find', ...(state.claude ? ['claude'] : []), 'done']; wat = 0; openSetup(); }
+function openWelcome() { wsteps = ['hello', ...(lanBlocked() ? ['network'] : []), 'find', ...(state.claude ? ['claude'] : []), 'done']; wat = 0; openSetup(); }
+// macOS: the server sends nothing on the Wi-Fi until Continue, so its one Local Network prompt comes right after this explanation.
+// Then nobody gets past this step, from the welcome or as a blocker over every page, while access is off.
+let netAt = 0;
+const lanBlocked = () => !!state.lan && (!state.lan.asked || state.lan.allowed === false);  // no lan: an older server mid-update
+function needLan() {
+  const w = wsteps?.[wat];
+  if (lanBlocked() && w !== 'network' && w !== 'hello') {
+    $('timerSheet').close(); hideQR();
+    if (wsteps) wsteps.splice(wat, 0, 'network'); else { wsteps = ['network']; wat = 0; setupOpen = true; }
+    showSetup();
+  } else if (!lanBlocked() && w === 'network') wat < wsteps.length - 1 ? step(1) : closeSetup();
+  else if (w === 'network') drawLan();
+}
+function drawLan() {
+  const {asked, fallback} = state.lan, wait = asked && !fallback && Date.now() - netAt < 15000;  // the macOS alert may still be up
+  const off = asked && !wait;
+  $('netTitle').textContent = !off ? 'Local network access' : fallback ? 'One more install step' : 'Access is off';
+  $('netLine').textContent = !off ? 'Your lights are on your Wi\u2011Fi. macOS asks before any app talks to devices on your Wi\u2011Fi. Govee Lights only talks to your lights.'
+    : fallback ? 'This Mac needs Apple’s free developer tools, so macOS can let Govee Lights reach your lights.' : 'Govee Lights can’t reach your lights until Local Network is on for it.';
+  $('netAsk').hidden = off; $('netGo').hidden = asked; $('netWait').hidden = !wait;
+  $('netOff').hidden = !off || fallback; $('netFix').hidden = !off || !fallback;
+}
+async function allowLan() { netAt = Date.now(); $('netGo').disabled = true; await post('/api/network', {}); $('netGo').disabled = false; }
 function closeSetup() { setupOpen = false; wsteps = null; welcomeDone = true; showSetup(); }
 function step(d) { wat += d; showSetup(); if (d > 0 && wsteps[wat] === 'find') scan(); }
 function showSetup() {
@@ -997,9 +1060,10 @@ function showSetup() {
   $('setup').hidden = !setupOpen; $('setup').classList.toggle('welcome', !!w); $('setup').scrollTop = 0;
   document.querySelectorAll('.wstep').forEach(s => s.hidden = s.dataset.step !== (w || 'find'));
   $('wBack').parentElement.hidden = !w; $('wBack').style.visibility = wat ? '' : 'hidden';
-  if (w) { $('dots').replaceChildren(...wsteps.map((_, i) => Object.assign(document.createElement('span'), {className: i === wat ? 'on' : ''}))); $('dots').setAttribute('aria-label', `Step ${wat + 1} of ${wsteps.length}`); }
-  $('app').hidden = $('footApp').hidden = $('addLights').hidden = setupOpen; $('setupDone').hidden = !!w && ids().length > 0;
+  if (w) { $('dots').replaceChildren(...wsteps.map((_, i) => Object.assign(document.createElement('span'), {className: i === wat ? 'on' : ''}))); $('dots').setAttribute('aria-label', `Step ${wat + 1} of ${wsteps.length}`); $('dots').hidden = wsteps.length < 2; }
+  $('app').hidden = $('footApp').hidden = $('addLights').hidden = setupOpen; $('setupDone').hidden = w === 'network' || !!w && ids().length > 0;
   $('setupDone').textContent = ids().length ? 'Done' : 'Use without lights'; drawTabs();
+  if (w === 'network') drawLan();
   if (setupOpen) scrollTo(0, 0);
 }
 async function useAsk(use) {
@@ -1139,7 +1203,8 @@ async function refresh() {
   $('noLights').hidden = ids().length > 0;
   if (ids().length) welcomeDone = true;
   if (!ids().length && !setupOpen && !welcomeDone) openWelcome();
-  if (setupOpen) { drawSetup(); $('setupDone').hidden = !!wsteps && ids().length > 0; }
+  needLan();
+  if (setupOpen) { drawSetup(); $('setupDone').hidden = wsteps?.[wat] === 'network' || !!wsteps && ids().length > 0; }
   fixLight(); drawTabs(); syncControls(); draw();
 }
 async function poll() { await refresh(); setTimeout(poll, document.hidden ? 2000 : 150); }

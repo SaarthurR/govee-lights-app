@@ -3,6 +3,7 @@
 # Needs "LAN Control" on in the Govee Home app for each light.
 import base64, datetime as dt, errno, ipaddress, json, math, os, random, shutil, socket, subprocess, sys, tempfile, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from socketserver import TCPServer
 from pathlib import Path
 from urllib import request, error
 from launcher import update
@@ -12,7 +13,7 @@ APP_VERSION = update.settings()['version']
 HERE = Path(__file__).parent
 SAVE = Path(os.environ.get("GOVEE_STATE", HERE / "state.json"))   # lights, last look + history per light, themes, schedule; survives restarts
 N = 84    # most colors one razer packet holds (length byte = 3*N+2 <= 255)
-# Streaming slots, not physical LED counts: FUNCTIONS.md (H805D), OpenRGB's Govee table (H619A).
+# Streaming slots, not physical LED counts: docs/protocol.md (H805D), OpenRGB's Govee table (H619A).
 MODELS = {"H805D": {"bulbs": 84, "razer": True}, "H619A": {"bulbs": 20, "razer": True},
           "H6008": {"bulbs": 1, "razer": False}}  # false = no verified streaming support in this app
 BASIC = MODELS["H6008"]
@@ -60,6 +61,11 @@ FAKE_SKUS = os.environ.get("GOVEE_FAKE_SKUS", "H805D").split(",")
 # macOS Local Network privacy turns every LAN send into "No route to host" until the user allows the app.
 LAN_BLOCKED = ("Allow Govee Lights in System Settings > Privacy & Security > Local Network. "
                "Not listed there? Run xcode-select --install in Terminal, then run the Lights installer again.")
+# macOS asks once, on the first LAN packet. Nothing goes out until the page has explained why and the user tapped Continue.
+lan_asked = False
+lan_seen = (-9.0, "unknown")  # (monotonic time, last probe result)
+FAKE_NET = os.environ.get("GOVEE_FAKE_NET", "allowed")  # test mode: what the Local Network check reports after Continue
+APP_BIN = Path.home() / "Applications/Govee Lights.app/Contents/MacOS/Govee Lights"
 govee_key = ""
 govee_devices = []
 govee_cache = {}
@@ -98,12 +104,68 @@ def add_light(dev, name, sku="", addr=""):
     schedule.setdefault(dev, {"use": True, "timers": []})
 
 
+def lan_open():
+    return sys.platform != "darwin" or lan_asked
+
+
+def lan_gate():
+    if not lan_open():
+        raise OSError(errno.EHOSTUNREACH, "Local Network not asked yet")  # treated like a denied send
+
+
+def lan_allowed():
+    """macOS Local Network access: True, False (denied) or "unknown" (not asked yet, or no network). Probes at most every 2 s."""
+    global lan_seen
+    if sys.platform != "darwin":
+        return True
+    if not lan_open():
+        return "unknown"
+    if DRY:
+        return {"allowed": True, "denied": False}.get(FAKE_NET, "unknown")
+    if time.monotonic() - lan_seen[0] >= 2:
+        # The scan group's discard port: a denied send fails with No route to host, and no light listens there.
+        # Unicast is worse (a missing ARP reply gives the same error) and sends to the router are never blocked.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            try:
+                s.sendto(b"", ("239.255.255.250", 9))
+                ok = True
+            except OSError as e:
+                ok = False if e.errno == errno.EHOSTUNREACH else "unknown"
+        if ok is True and lan_seen[1] is False:
+            threading.Thread(target=wake, daemon=True).start()  # just allowed: bring the lights back
+        lan_seen = (time.monotonic(), ok)
+    return lan_seen[1]
+
+
+def fallback_app():  # the no-swiftc build is a script, which macOS can't list under Local Network
+    try:
+        with APP_BIN.open("rb") as f:
+            return f.read(2) == b"#!"
+    except OSError:
+        return False
+
+
+def wake():
+    """Startup scan, then each saved look again."""
+    try:
+        print("found:", {short(k): d["ip"] for k, d in discover().items()} or "no lights yet (turn on LAN Control in the Govee Home app)")
+    except OSError as e:
+        print("scan failed:", e)
+    for k, s in list(st.items()):
+        if s["on"] and k not in paused:
+            try:
+                reconnect(k)
+            except OSError as e:
+                s["error"] = f"reconnect: {e}"
+
+
 def send(key, cmd, data):
     if cmd == "razer" and not capability(key)["razer"]:
         return
     if cmd == "turn":
         command_at[key] = time.monotonic()
     if not DRY:
+        lan_gate()
         sock.sendto(json.dumps({"msg": {"cmd": cmd, "data": data}}).encode(), ((lights.get(key) or found[key])["ip"], 4003))
 
 
@@ -279,6 +341,7 @@ def save():
     data["_outside"] = outside
     data["_paused"] = sorted(paused)
     data["_ask"] = ask_on
+    data["_lan_asked"] = lan_asked
     tmp = SAVE.with_suffix(".tmp")
     try:
         tmp.touch(mode=0o600, exist_ok=True)
@@ -295,9 +358,10 @@ def load():
         data = json.loads(SAVE.read_text())
     except (OSError, ValueError):
         return
-    global location, govee_key, ask_on
+    global location, govee_key, ask_on, lan_asked
     govee_key = str(data.get("_govee_key") or "")
     ask_on = data.get("_ask") is not False
+    lan_asked = data.get("_lan_asked") is True
     outside.update(data.get("_outside") or {})
     paused.update(data.get("_paused") or [])
     for dev, v in (data.get("_lights") or {}).items():
@@ -599,6 +663,7 @@ def discover():
             replies = [json.dumps({"msg": {"cmd": "scan", "data": {"device": f"AA:BB:CC:DD:EE:FF:{0x1A + i:02X}:{0x2B + i:02X}",
                                                                    "ip": f"192.168.0.{20 + i}", "sku": FAKE_SKUS[i % len(FAKE_SKUS)]}}}) for i in range(FAKE)]
         else:
+            lan_gate()
             replies = []
             r = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             r.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -840,6 +905,7 @@ def observe_power(dev, power, now, stamp):
 
 def statuses(addrs):
     """Ask each address for devStatus; yield (ip, on) as replies come in, for up to 2 seconds."""
+    lan_gate()
     left = set(addrs)
     with scan_lock:  # scans and devStatus share the reply port
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as r:
@@ -1203,6 +1269,10 @@ def phone_address(ip):
     return f"http://{name}:{PORT}"
 
 
+class Server(ThreadingHTTPServer):
+    server_bind = TCPServer.server_bind  # skips HTTPServer's reverse-DNS lookup, which can stall startup ~30 s
+
+
 class H(BaseHTTPRequestHandler):
     def reply(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -1236,10 +1306,12 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, theme_list())
         if self.path == "/api/state":
             saved = list(lights.items())
+            allowed = lan_allowed()
             return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history"} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d | {"capabilities": capability(k)}
                                                for k, d in saved if k in st},
                                     "found": [{"id": k, "sku": d["sku"], "short": short(k)} for k, d in found.items() if k not in lights],
-                                    "n": N, "phone": PHONE, "phone_ip": PHONE_IP, "version": VERSION, "claude": CLAUDE, "ask": ask_on, "update": dict(update.settings(), version=APP_VERSION)})
+                                    "n": N, "phone": PHONE, "phone_ip": PHONE_IP, "version": VERSION, "claude": CLAUDE, "ask": ask_on, "update": dict(update.settings(), version=APP_VERSION),
+                                    "lan": {"asked": lan_open(), "allowed": allowed, "fallback": allowed is False and fallback_app()}})
         if self.path == "/api/previews":
             return self.reply(200, PREVIEWS)
         if self.path.split("?")[0] in ("/", "/index.html"):
@@ -1250,7 +1322,7 @@ class H(BaseHTTPRequestHandler):
         self.reply(404, {"error": "not found"})
 
     def do_POST(self):
-        global govee_key, govee_devices, ask_on
+        global govee_key, govee_devices, ask_on, lan_asked
         if not self.allowed():
             return self.reply(403, {"error": "home Wi-Fi only"})
         # JSON-only blocks other websites from posting here through the user's browser (no CORS preflight answer)
@@ -1279,6 +1351,17 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/api/effect-previews":  # effect clips in the colors the user picked
                 p = clean({k: v for k, v in body.items() if k in ("colors", "speed", "amount")})
                 return self.reply(200, {e: clip(dict(p, effect=e)) for e in EFFECTS if e not in ("paint", "custom")})
+            if self.path == "/api/network":  # the user read why and tapped Continue, so macOS may ask now
+                if not lan_asked:
+                    lan_asked = True
+                    with lock:
+                        save()
+                    threading.Thread(target=wake, daemon=True).start()  # its scan is the first LAN packet: the prompt
+                return self.reply(200, {"ok": True})
+            if self.path == "/api/network/settings":
+                if sys.platform == "darwin":
+                    subprocess.run(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork"], check=False)
+                return self.reply(200, {"ok": True})
             if self.path == "/api/scan":
                 discover()
                 return self.reply(200, {"ok": True, "found": len(found)})
@@ -1550,7 +1633,7 @@ if __name__ == "__main__":
     assert len(outside[dev]) == 1  # long observation gap has no exact time
     govee_key = "sample-not-a-key"
     save()
-    assert SAVE.stat().st_mode & 0o777 == 0o600
+    assert os.name == "nt" or SAVE.stat().st_mode & 0o777 == 0o600  # Windows has no POSIX modes; the profile folder is per-user
     outside.clear(); paused.clear(); govee_key = ""; load()
     assert govee_key == "sample-not-a-key" and len(outside[dev]) == 1 and dev in paused
     ask_on = False; save(); ask_on = True; load()
@@ -1566,10 +1649,8 @@ if __name__ == "__main__":
     SAVE, found, DRY = real, {}, was_dry
     PREVIEWS = previews()
     load()
-    try:
-        print("found:", {short(k): d["ip"] for k, d in discover().items()} or "no lights yet (turn on LAN Control in the Govee Home app)")
-    except OSError as e:
-        print("scan failed:", e)
+    if lan_open():
+        wake()
     me = "localhost"
     try:  # which address the phone should use; a UDP connect sends no packet
         u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); u.connect(("8.8.8.8", 80)); me = u.getsockname()[0]; u.close()
@@ -1577,12 +1658,9 @@ if __name__ == "__main__":
         pass
     PHONE_IP = f"http://{me}:{PORT}"
     PHONE = phone_address(me)
-    for k, s in st.items():  # bring back the saved look
-        if s["on"] and k not in paused:
-            reconnect(k)
     threading.Thread(target=streamer, daemon=True).start()
     threading.Thread(target=rediscover_loop, daemon=True).start()
     threading.Thread(target=schedule_loop, daemon=True).start()
     threading.Thread(target=status_loop, daemon=True).start()
     print(f"Govee app: http://localhost:{PORT}   phone (same Wi-Fi): {PHONE}" + ("   DRY RUN, lights untouched" if DRY else "") + "   Ctrl+C to stop.")
-    ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()
+    Server(("0.0.0.0", PORT), H).serve_forever()

@@ -18,7 +18,7 @@ A razer frame is `BB 00 <length> <payload>`, then one byte that XORs all the byt
 
 - Turn per-bulb mode on: payload `B1 01`, so `bb 00 01 b1 01 0a`. Off: `B1 00`.
 - Colors: payload `B0 00 <count> R G B R G B ...`. The `00` turns off blending between frames. The length is one byte, so a frame holds at most 84 colors (3 × 84 + 2 = 254).
-- The app sends 84 colors 12 times a second. The H805D reports 132 LED chips; how it spreads 84 colors over them was not measured.
+- The app sends 84 colors to an H805D (20 to an H619A) 12 times a second. The H805D reports 132 LED chips; how it spreads 84 colors over them was not measured.
 
 What we learned on real strips:
 
@@ -35,7 +35,7 @@ Sources: [Govee LAN guide](https://app-h5.govee.com/user-manual/wlan-guide), [LA
 
 Bluetooth works through the `govee-ble-local` library, which handles the encryption (plain frames are ignored). On the H805D it reaches only 33 groups of 4 bulbs, and each command waits for an acknowledgement, so it is too coarse and slow for these effects. No supported way was found to upload a custom effect that runs on the light by itself: effects have to be streamed.
 
-The scripts in `research/` are the probes used to find this. They need `pip install bleak govee-ble-local`; the app does not use them. `research/map_test.py` makes no Bluetooth contact unless you pass `--run`.
+The app does not use Bluetooth.
 
 ## Govee cloud API
 
