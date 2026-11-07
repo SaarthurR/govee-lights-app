@@ -2,6 +2,8 @@
 
 Moving, bulb-by-bulb effects and smarter timers for Govee light strips, from any phone or computer on your Wi-Fi. No cloud, no account.
 
+**Open Govee Lights from Launchpad / Start Menu** after installing (or your Linux app menu). On Mac, you can drag it from `~/Applications` into the Dock. No Terminal needed after setup.
+
 <p>
   <img src="docs/control.png" width="250" alt="Control page: live strip of bulbs, power, brightness and colors">
   <img src="docs/schedule.png" width="250" alt="Schedule page: a list of timers with the next one shown on top">
@@ -50,7 +52,9 @@ On Windows, paste this into PowerShell:
 irm https://raw.githubusercontent.com/SaarthurR/govee-lights-app/main/install.ps1 | iex
 ```
 
-It checks for Python 3.10 or newer, downloads this repo into `govee-lights` in your home folder (no git needed), starts the app and opens it in your browser. It starts at login and restarts after a crash (LaunchAgent on macOS, systemd user service on Linux, Scheduled Task on Windows; no admin). Run the command again to update; your lights and themes are kept. Linux without a working systemd user session runs in the foreground. Read it first: [install.sh](install.sh), [install.ps1](install.ps1).
+It checks for Python 3.10 or newer, downloads this repo into `govee-lights` in your home folder (no git needed), creates the desktop app, starts the server and opens Lights. macOS builds a small native window locally when Swift is available; otherwise Chrome/Edge app mode is used, with the default browser as a fallback. Windows uses Edge app mode; Linux uses an installed Chromium browser’s app mode, with a default-browser fallback. It starts at login and restarts after a crash (LaunchAgent on macOS, systemd user service on Linux, Scheduled Task on Windows; no admin). Run the command again to update; your lights and themes are kept. Linux without a working systemd user session starts the server on demand when you open Lights. Opening Lights again reuses the server; if its saved port is busy, it tries the next five ports. Uninstall also removes the desktop app and shortcuts. Read it first: [install.sh](install.sh), [install.ps1](install.ps1).
+
+Auto-update is on by default. Lights checks GitHub `main` when opened and about once a day while running. A newer commit is installed using the same installer, keeping your saved lights and themes; the server then restarts. Failed updates keep the previous version. Turn **Auto-update** off at the bottom of the page to stop all checks; the current commit is shown beside it.
 
 ### Uninstall
 
@@ -72,7 +76,7 @@ Or clone the repo, then in its folder run `python3 server.py` (on Windows: `py s
 2. The welcome screen finds the lights on your Wi-Fi. Click **Flash** next to one to make it blink, then give each one a name.
 3. **Open it on your phone:** on the computer, click **Open on phone** and scan the code with your phone camera, then **Share → Add to Home Screen**. The phone must be on the same Wi-Fi. The link uses the computer’s `.local` name when it resolves; an IP fallback appears below the code.
 
-To rename or remove a light later, use **Manage lights** at the bottom of the page.
+To add a light later, even if you skipped the welcome, click **Add lights** next to the page title. To rename or remove one, use **Manage lights** at the bottom of the page.
 
 ## Troubleshooting
 
