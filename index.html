@@ -154,6 +154,23 @@
   .chk input { width:20px; height:20px; margin:0; accent-color:var(--ink); }
   .steps { margin:12px 0 0; padding-left:22px; display:flex; flex-direction:column; gap:8px; text-wrap:pretty; }
   .setup-intro { margin:-4px 0 16px; color:var(--mute); font-size:15px; text-wrap:pretty; }
+  /* first run: the setup screen becomes a full-screen welcome, one step at a time */
+  #setup.welcome { position:fixed; inset:0; z-index:15; background:var(--bg); overflow-y:auto; overscroll-behavior:contain; display:flex; flex-direction:column;
+    padding:max(12px, env(safe-area-inset-top)) 20px calc(28px + env(safe-area-inset-bottom)); }
+  #setup.welcome > * { width:100%; max-width:440px; margin-inline:auto; }
+  #setup.welcome .wstep { margin-block:auto; padding:24px 0; }
+  #setup.welcome .card { background:none; border:0; border-radius:0; }
+  .wtop { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; justify-items:start; min-height:44px; }
+  .dots { display:flex; gap:6px; }
+  .dots span { width:6px; height:6px; border-radius:99px; background:#d9d7d2; transition:width 250ms var(--ease-out), background-color 250ms; }
+  .dots span.on { width:18px; background:var(--ink); }
+  .wtitle, #setup.welcome .card h2 { font-size:40px; font-weight:700; letter-spacing:-.03em; line-height:1.1; text-transform:none; color:var(--ink); margin:0 0 12px; }
+  .wline, #setup.welcome .setup-intro { font-size:18px; color:var(--mute); margin:0; text-wrap:pretty; }
+  #setup.welcome .setup-intro { margin-bottom:24px; }
+  .wgo { width:100%; margin-top:36px; }
+  .wstep:not([hidden]) { animation:rise 350ms var(--ease-out) both; }
+  .scanning { animation:pulse 1.6s ease-in-out infinite; }
+  .foot a { color:var(--ink); }
   .locbox { background:var(--soft); border-radius:14px; padding:12px; margin-top:12px; }
   .locbox .ask input { background:#fff; }
   #qrBox { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; padding:16px; z-index:9; }
@@ -187,6 +204,7 @@
   }
   @media (prefers-reduced-motion:reduce) {
     [data-page], #qrBox .card, #timerSheet .card, .msg.new, .paintbar.on { animation-name:fade !important; }
+    .wstep, .scanning { animation:none !important; }
     * { scale:none !important; }
     input[type=range]::-webkit-slider-thumb { scale:none !important; transition:none; }
     input[type=range]::-webkit-slider-runnable-track { transition:none; }
@@ -252,22 +270,37 @@
     <button class="btn" onclick="toggleAccount()">Done</button>
   </section>
   <section id="setup" hidden>
-  <div class="card">
+  <div class="wtop"><button class="linkbtn" id="wBack" onclick="step(-1)">Back</button><div class="dots" id="dots" role="img"></div></div>
+  <div class="wstep" data-step="hello">
+    <h1 class="wtitle">Welcome</h1>
+    <p class="wline">Control your Govee lights bulb by bulb, right from this page.</p>
+    <button class="btn dark wgo" onclick="step(1)">Get started</button>
+  </div>
+  <div class="card wstep" data-step="find">
     <h2 id="setupTitle">Set up your lights</h2>
     <p class="setup-intro" id="setupIntro"></p>
     <div id="setupList"></div>
     <div id="setupEmpty" hidden>
-      <div class="summary" id="emptyTitle">No lights found yet</div>
+      <div class="summary" id="emptyTitle">No lights found</div>
       <ol class="steps">
         <li>In the Govee Home app, open your light, tap the settings gear and turn on <b>LAN Control</b>.</li>
-        <li>Make sure the light and this computer are on the same Wi-Fi.</li>
-        <li>Tap <b>Scan again</b>. It takes about 3 seconds.</li>
+        <li>Put the light and this computer on the same Wi-Fi, not a guest network.</li>
+        <li>If this computer has a firewall, allow incoming connections for Python.</li>
       </ol>
     </div>
-    <div class="row" style="margin-top:20px">
+    <div class="row" id="setupBtns" style="margin-top:20px">
       <button class="btn" id="scanBtn" onclick="scan()">Scan again</button>
       <button class="btn dark grow" id="setupSave" onclick="saveSetup()">Save lights</button>
     </div>
+  </div>
+  <div class="wstep" data-step="claude">
+    <h1 class="wtitle">Ask Claude</h1>
+    <p class="wline">Claude is on this computer. Use it to make looks and schedules by just typing? It uses your Claude account.</p>
+    <div class="row wgo"><button class="btn grow" onclick="useAsk(false)">Not now</button><button class="btn dark grow" onclick="useAsk(true)">Turn on</button></div>
+  </div>
+  <div class="wstep" data-step="done">
+    <h1 class="wtitle">You’re set.</h1>
+    <button class="btn dark wgo" onclick="closeSetup()">Open my lights</button>
   </div>
   <button class="btn" id="setupDone" style="width:100%" onclick="closeSetup()" hidden>Done</button>
   </section>
@@ -401,7 +434,9 @@
     </div>
   </div></dialog>
   <p class="foot"><span id="footApp">Lights not responding? <button class="linkbtn" onclick="reconnect(this)" title="Finds the lights again, for example after a power cut or a router change">Reconnect</button>
-    <button class="linkbtn" onclick="openSetup()">Manage lights</button></span>
+    <button class="linkbtn" onclick="openSetup()">Manage lights</button>
+    <button class="linkbtn" id="askUse" onclick="useAsk(!state.ask)" hidden></button>
+    <span id="askGet" style="width:100%;order:1" hidden>Ask Claude needs <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a> on this computer.</span></span>
     <button class="linkbtn" id="settingsBtn" onclick="toggleAccount()">Govee account</button></p>
 </main>
 <script>
@@ -876,13 +911,24 @@ function drawOutside(data) {
   $('outsideWarnings').replaceChildren(...warnings);
   $('outsideEvents').replaceChildren(...events);
 }
-// setup: name the lights the LAN scan found; later, rename or forget them
-let setupOpen = false, setupKey = '', typed = {};
+// setup: name the lights the LAN scan found; later, rename or forget them. The first run wraps it in a short welcome.
+let setupOpen = false, setupKey = '', typed = {}, wsteps = null, wat = 0, scanning = false;
 function openSetup() { setupOpen = true; setupKey = ''; typed = {}; drawSetup(); showSetup(); }
-function closeSetup() { setupOpen = false; showSetup(); }
+function openWelcome() { wsteps = ['hello', 'find', ...(state.claude ? ['claude'] : []), 'done']; wat = 0; openSetup(); }
+function closeSetup() { setupOpen = false; wsteps = null; showSetup(); }
+function step(d) { wat += d; showSetup(); if (d > 0 && wsteps[wat] === 'find') scan(); }
 function showSetup() {
-  $('setup').hidden = !setupOpen; $('app').hidden = $('footApp').hidden = setupOpen; $('setupDone').hidden = !ids().length; drawTabs();
+  const w = wsteps && wsteps[wat];
+  $('setup').hidden = !setupOpen; $('setup').classList.toggle('welcome', !!w); $('setup').scrollTop = 0;
+  document.querySelectorAll('.wstep').forEach(s => s.hidden = s.dataset.step !== (w || 'find'));
+  $('wBack').parentElement.hidden = !w; $('wBack').style.visibility = wat ? '' : 'hidden';
+  if (w) { $('dots').replaceChildren(...wsteps.map((_, i) => Object.assign(document.createElement('span'), {className: i === wat ? 'on' : ''}))); $('dots').setAttribute('aria-label', `Step ${wat + 1} of ${wsteps.length}`); }
+  $('app').hidden = $('footApp').hidden = setupOpen; $('setupDone').hidden = !ids().length || !!w; drawTabs();
   if (setupOpen) scrollTo(0, 0);
+}
+async function useAsk(use) {
+  const j = await post('/api/ask/use', {use}, wsteps ? null : `Ask Claude turned ${use ? 'on' : 'off'}`);
+  if (j && j.ok && wsteps) step(1);
 }
 function lightRow(id, label, name, extra, isNew) {
   const r = document.createElement('div'); r.className = 'lrow';
@@ -902,41 +948,45 @@ async function flash(id, b) {
 }
 function drawSetup() {
   if (!state) return;
-  const saved = ids(), found = state.found, key = JSON.stringify([saved, found, govee.devices]);
+  const saved = ids(), found = state.found, key = JSON.stringify([saved, found, govee.devices, scanning, !!wsteps]);
   if (key === setupKey) return; setupKey = key;
   const used = new Set(saved.map(nameOf)), next = () => { let n = 1; while (used.has(`Light ${n}`)) n++; used.add(`Light ${n}`); return `Light ${n}`; };
   const rows = saved.map(k => {
     const s = state.lights[k], label = `${s.sku} · ${s.short}`, b = document.createElement('button');
     b.className = 'btn'; b.textContent = 'Forget'; b.setAttribute('aria-label', `Forget ${s.name}`); b.onclick = () => forget(k);
-    return lightRow(k, label, typed[k] ?? s.name, b);
+    return lightRow(k, label, typed[k] ?? s.name, wsteps ? '' : b);
   }).concat(found.map(f => {
     const label = `${f.sku} · ${f.short}`, c = document.createElement('label'); c.className = 'chk';
     c.innerHTML = '<input type="checkbox" checked>Add'; c.firstChild.setAttribute('aria-label', `Add ${label}`);
-    return lightRow(f.id, label, typed[f.id] ?? (govee.devices.find(d => d.id.toUpperCase() === f.id.toUpperCase())?.name || next()), c, true);
+    return lightRow(f.id, label, typed[f.id] ?? (govee.devices.find(d => d.id.toUpperCase() === f.id.toUpperCase())?.name || next()), wsteps ? '' : c, true);
   }));
   $('setupList').replaceChildren(...rows);
   const first = !saved.length;
-  $('setupTitle').textContent = first ? 'Set up your lights' : 'Manage lights';
-  $('setupIntro').textContent = found.length ? (first ? 'Found on your Wi-Fi. Tap Flash to blink a light and see which one it is, then give it a name you’ll recognize.' : 'New lights found on your Wi-Fi. Tap Flash to see which one is which, then tick the ones to add.')
+  $('setupTitle').textContent = wsteps ? 'Find your lights' : first ? 'Set up your lights' : 'Manage lights';
+  $('setupIntro').textContent = scanning ? 'Looking for lights on your Wi-Fi…' : wsteps ? (rows.length ? 'Tap Flash to blink a light and see which one it is, then give it a name.' : '')
+    : found.length ? (first ? 'Found on your Wi-Fi. Tap Flash to blink a light and see which one it is, then give it a name you’ll recognize.' : 'New lights found on your Wi-Fi. Tap Flash to see which one is which, then tick the ones to add.')
     : first ? 'The app looks for Govee lights on your Wi-Fi.' : 'Rename a light, or forget one you no longer use. Flash blinks a light so you can see which one it is. To add a light, turn on LAN Control for it, then tap Scan again.';
-  $('setupEmpty').hidden = !first || found.length > 0;
-  $('setupSave').hidden = !rows.length;
+  $('setupIntro').classList.toggle('scanning', scanning); $('setupIntro').hidden = !$('setupIntro').textContent;
+  $('setupList').hidden = $('setupBtns').hidden = scanning;
+  $('setupEmpty').hidden = !first || found.length > 0 || scanning;
+  $('setupSave').hidden = !rows.length; $('setupSave').textContent = wsteps ? 'Continue' : 'Save lights';
   $('scanBtn').classList.toggle('dark', !rows.length);
 }
 async function scan() {
-  const b = $('scanBtn'); b.disabled = true; b.textContent = 'Scanning…';
-  const j = await post('/api/scan', {}, null);
-  b.disabled = false; b.textContent = 'Scan again';
-  if (j && j.ok) { await refresh(); toast(state.found.length ? `Found ${state.found.length === 1 ? '1 new light' : state.found.length + ' new lights'}` : 'No new lights found', !state.found.length && !ids().length); }
+  const b = $('scanBtn'); b.disabled = true; b.textContent = 'Scanning…'; scanning = !!wsteps; drawSetup();
+  const [j] = await Promise.all([post('/api/scan', {}, null), new Promise(r => setTimeout(r, wsteps ? 1500 : 0))]);  // a calm beat, even when the scan is instant
+  scanning = false; b.disabled = false; b.textContent = 'Scan again';
+  if (j && j.ok) { await refresh(); if (!wsteps) toast(state.found.length ? `Found ${state.found.length === 1 ? '1 new light' : state.found.length + ' new lights'}` : 'No new lights found', !state.found.length && !ids().length); }
+  drawSetup();
 }
 async function saveSetup() {
   const fields = [...$('setupList').querySelectorAll('input.field')];
-  const items = fields.filter(i => !i.dataset.isNew || i.parentElement.querySelector('input[type=checkbox]').checked).map(i => ({id: i.dataset.id, name: i.value.trim()}));
+  const items = fields.filter(i => !i.dataset.isNew || i.parentElement.querySelector('input[type=checkbox]')?.checked !== false).map(i => ({id: i.dataset.id, name: i.value.trim()}));
   if (!items.length) return toast('Tick at least one light to add.', true);
   const blank = fields.find(i => items.some(x => x.id === i.dataset.id && !x.name));
   if (blank) { blank.setAttribute('aria-invalid', 'true'); blank.focus(); return toast('Give each light a name.', true); }
   const j = await post('/api/lights', {lights: items}, ids().length ? 'Lights saved' : 'Lights saved. They should light up now');
-  if (j && j.ok) closeSetup();
+  if (j && j.ok) wsteps ? step(1) : closeSetup();
 }
 async function forget(id) {
   const n = nameOf(id);
@@ -992,9 +1042,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQR(); })
 async function refresh() {
   try { state = await (await fetch('/api/state')).json(); N = state.n; syncControls(); draw(); }
   catch (e) { alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
-  $('askCard').hidden = !state.claude; $('themesAsk').hidden = !state.claude;
-  if (!ids().length && !setupOpen) openSetup();
-  if (setupOpen) { drawSetup(); $('setupDone').hidden = !ids().length; }
+  $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
+  $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
+  if (!ids().length && !setupOpen) openWelcome();
+  if (setupOpen) { drawSetup(); $('setupDone').hidden = !ids().length || !!wsteps; }
   fixLight(); drawTabs(); syncControls(); draw();
 }
 async function poll() { await refresh(); setTimeout(poll, document.hidden ? 2000 : 150); }
