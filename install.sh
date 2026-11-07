@@ -54,9 +54,10 @@ main() {
   trap 'rm -rf "$tmp"' EXIT HUP INT TERM
   version=${GOVEE_VERSION:-}
   if [ -z "$version" ] && [ -z "${GOVEE_TARBALL:-}" ]; then
-    version=$(curl -fsSL https://api.github.com/repos/SaarthurR/govee-lights-app/commits/main | "$py" -c 'import json, sys; print(json.load(sys.stdin)["sha"])')
+    # The GitHub API can rate-limit; then install main and let auto-update record the commit later.
+    version=$(curl -fsSL https://api.github.com/repos/SaarthurR/govee-lights-app/commits/main 2>/dev/null | "$py" -c 'import json, sys; print(json.load(sys.stdin)["sha"])' 2>/dev/null) || version=
   fi
-  curl -fsSL "${GOVEE_TARBALL:-https://github.com/SaarthurR/govee-lights-app/archive/$version.tar.gz}" -o "$tmp/app.tar.gz"
+  curl -fsSL "${GOVEE_TARBALL:-https://github.com/SaarthurR/govee-lights-app/archive/${version:-main}.tar.gz}" -o "$tmp/app.tar.gz"
   mkdir "$tmp/app"
   tar -xzf "$tmp/app.tar.gz" -C "$tmp/app" --strip-components=1
   test -f "$tmp/app/server.py"
@@ -69,7 +70,7 @@ main() {
   "$py" - "$service" "$dir" "$port" "$label" "$agent" "$unit" <<'PY'
 import json, os, pathlib, plistlib, sys
 service, directory, port, label, agent, unit = sys.argv[1:]
-env = {"PORT": port}
+env = {"PORT": port, "PATH": os.environ.get("PATH", "/usr/bin:/bin")}  # so the service finds the claude command
 # Carry dry-test settings into the isolated service, never real light traffic.
 env.update({k: os.environ[k] for k in ("GOVEE_DRY", "GOVEE_FAKE_LIGHTS", "GOVEE_FAKE_SKUS", "GOVEE_STATE") if k in os.environ})
 if service == "launchd":
