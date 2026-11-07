@@ -9,6 +9,10 @@ from urllib import request, error
 HERE = Path(__file__).parent
 SAVE = Path(os.environ.get("GOVEE_STATE", HERE / "state.json"))   # lights, last look + history per light, themes, schedule; survives restarts
 N = 84    # most colors one razer packet holds (length byte = 3*N+2 <= 255)
+# Streaming slots, not physical LED counts: FUNCTIONS.md (H805D), OpenRGB's Govee table (H619A).
+MODELS = {"H805D": {"bulbs": 84, "razer": True}, "H619A": {"bulbs": 20, "razer": True},
+          "H6008": {"bulbs": 1, "razer": False}}  # false = no verified streaming support in this app
+BASIC = MODELS["H6008"]
 FPS = 12
 HISTORY = 30
 EFFECTS = ("wave", "smoothwave", "shimmer", "twinkle", "comet", "fire", "aurora",
@@ -49,6 +53,7 @@ ask_lock = threading.Lock()
 PORT = int(os.environ.get("PORT", 8765))
 DRY = os.environ.get("GOVEE_DRY") == "1"  # test mode: nothing is sent to the lights
 FAKE = int(os.environ.get("GOVEE_FAKE_LIGHTS") or 0) if DRY else 0  # test mode: the scan "finds" this many lights
+FAKE_SKUS = os.environ.get("GOVEE_FAKE_SKUS", "H805D").split(",")
 govee_key = ""
 govee_devices = []
 govee_cache = {}
@@ -68,13 +73,28 @@ def short(dev):
     return dev.replace(":", "")[-4:].upper()  # the 4 characters the Govee app shows, e.g. H805D_1A2B
 
 
+def capability(dev):
+    return MODELS.get((lights.get(dev) or found.get(dev) or {}).get("sku"), BASIC)
+
+
+def light_settings(key, p):
+    cap = capability(key)
+    if not cap["razer"]:
+        p = {k: v for k, v in p.items() if k in ("on", "brightness", "colors")}
+        p = dict(p, effect="solid", bulbs=None, animation=None)
+        p["colors"] = p.get("colors", (st.get(key) or DEFAULT)["colors"])[:1]
+    return clean(p, cap["bulbs"])
+
+
 def add_light(dev, name, sku="", addr=""):
     lights[dev] = {"name": name, "sku": sku, "ip": addr}
-    st.setdefault(dev, dict(DEFAULT, frame=[[0, 0, 0]] * N, error=None, said=None, history=[]))
+    st.setdefault(dev, dict(DEFAULT, **light_settings(dev, {}), frame=[[0, 0, 0]] * capability(dev)["bulbs"], error=None, said=None, history=[]))
     schedule.setdefault(dev, {"use": True, "timers": []})
 
 
 def send(key, cmd, data):
+    if cmd == "razer" and not capability(key)["razer"]:
+        return
     if cmd == "turn":
         command_at[key] = time.monotonic()
     if not DRY:
@@ -82,6 +102,8 @@ def send(key, cmd, data):
 
 
 def razer(key, raw):
+    if not capability(key)["razer"]:
+        return
     x = 0
     for v in raw:
         x ^= v
@@ -108,7 +130,7 @@ def hashf(i, k):  # stable 0..1 noise per bulb and time step
     return random.Random(i * 7919 + k * 104729).random()
 
 
-def clean_animation(a):
+def clean_animation(a, n=N):
     if not isinstance(a, dict) or set(a) - {"frames", "shift", "motion", "block"}:
         raise ValueError("Animation needs frames, optional shift and motion.")
     frames = a.get("frames")
@@ -116,15 +138,15 @@ def clean_animation(a):
         raise ValueError("Animation needs 1-16 frames.")
     shift, motion = a.get("shift", 0), a.get("motion", "forward")
     block = a.get("block", 1)
-    if type(block) is not int or not 1 <= block <= 84:
-        raise ValueError("Animation block must be 1-84 bulbs.")
-    if type(shift) is not int or not -84 <= shift <= 84 or motion not in ("forward", "center", "outward"):
+    if type(block) is not int or not 1 <= block <= n:
+        raise ValueError(f"Animation block must be 1-{n} bulbs.")
+    if type(shift) is not int or not -n <= shift <= n or motion not in ("forward", "center", "outward"):
         raise ValueError("Invalid animation motion or shift.")
     out = []
     for f in frames:
         if not isinstance(f, dict) or set(f) - {"pattern", "duration", "fade"}:
             raise ValueError("Invalid animation frame.")
-        pattern = rgb_list(f.get("pattern"), 84)
+        pattern = rgb_list(f.get("pattern"), n)
         duration, fade = f.get("duration"), f.get("fade", 0)
         if type(duration) not in (int, float) or not 1 / FPS <= duration <= 60:
             raise ValueError("Frame duration must be 1/12 to 60 seconds.")
@@ -157,7 +179,7 @@ def custom_frame(a, t, n):
     blend = max(0, (at / f["duration"] - 1 + f["fade"]) / f["fade"]) if f["fade"] else 0
     out = []
     for i in range(n):
-        x = min(i, N - 1 - i) if a["motion"] != "forward" else i
+        x = min(i, n - 1 - i) if a["motion"] != "forward" else i
         if a["motion"] == "outward":
             x = -x
         c = f["pattern"][((x - step * a["shift"]) // a.get("block", 1)) % len(f["pattern"])]
@@ -177,7 +199,7 @@ def render(p, t, n=N):
     if e == "pattern":
         return [cs[i % len(cs)] for i in range(n)]
     if e == "paint":
-        return (p["bulbs"] or [c0] * N)[:n]
+        return (p["bulbs"] or [c0] * n)[:n]
     if e == "smoothwave":  # neighbours opposite, slow even sine fade, each a bit after the last
         return [mix(c0, c1, (math.sin(t * sp * 3.77 - i * amt * 1.2 + (i % 2) * math.pi) + 1) / 2) for i in range(n)]
     if e == "wave":  # same, but holds each color then switches fast
@@ -289,24 +311,31 @@ def load():
     for k, d in data.items():
         if k in st:
             st[k].update({x: v for x, v in d.get("look", {}).items() if x in KEYS})
-            st[k]["history"] = d.get("history", [])[-HISTORY:]
+            history = d.get("history", [])
+            try:
+                st[k].update(light_settings(k, look(st[k])))
+            except ValueError:  # an older save may have treated this model as an 84-slot strip
+                previous = look(st[k])
+                st[k].update(light_settings(k, dict(previous, effect="solid", animation=None)))
+                history = history + [previous]  # keep the original animation in the saved history
+            st[k]["history"] = history[-HISTORY:]
 
 
-def clean(p):
+def clean(p, n=N):
     """Validate settings from the UI or Claude."""
     p = {k: v for k, v in p.items() if k in KEYS}
     if "effect" in p and p["effect"] not in EFFECTS:
         raise ValueError(f"effect must be one of {EFFECTS}")
     if "animation" in p and p["animation"] is not None:
-        p["animation"] = clean_animation(p["animation"])
+        p["animation"] = clean_animation(p["animation"], n)
     if "colors" in p:
         cs = [[max(0, min(255, int(v))) for v in c][:3] for c in p["colors"]][:6]
         if not cs or any(len(c) != 3 for c in cs):
             raise ValueError("colors must be a list of [r,g,b]")
         p["colors"] = cs
     if p.get("bulbs") is not None:
-        b = [[max(0, min(255, int(v))) for v in c][:3] for c in p["bulbs"]][:N]
-        p["bulbs"] = b + [[0, 0, 0]] * (N - len(b))
+        b = [[max(0, min(255, int(v))) for v in c][:3] for c in p["bulbs"]][:n]
+        p["bulbs"] = b + [[0, 0, 0]] * (n - len(b))
     for k in ("speed", "amount"):
         if k in p:
             p[k] = max(0.05, min(5.0, float(p[k])))
@@ -319,7 +348,11 @@ def clean(p):
 
 def push(key, p, remember=True):
     """Send settings to the light. Hardware first, so the saved look only changes if the send works."""
+    p = light_settings(key, p)
     paused.discard(key)
+    if not capability(key)["razer"]:
+        c = (p.get("colors") or st[key]["colors"])[0]
+        send(key, "colorwc", {"color": dict(zip(("r", "g", "b"), c)), "colorTemInKelvin": 0})
     if "on" in p:
         send(key, "turn", {"value": 1 if p["on"] else 0})
     if "brightness" in p:
@@ -328,7 +361,8 @@ def push(key, p, remember=True):
         s = st[key]
         before = look(s)
         s.update(p)
-        if remember and look(s) != before and set(p) - {"on", "brightness"}:
+        s["frame"] = [[int(v) for v in c] for c in render(s, time.time(), capability(key)["bulbs"])]
+        if remember and any(s[k] != before[k] for k in KEYS if k not in ("on", "brightness")):
             s["history"] = (s["history"] + [before])[-HISTORY:]  # only looks go in undo, not on/off taps
         s["error"] = None
         save()
@@ -348,10 +382,10 @@ def streamer():
     while True:
         t = time.time()
         for key, s in list(st.items()):  # setup can add or forget a light mid-loop
-            if not s["on"] or key in paused:
+            if not capability(key)["razer"] or not s["on"] or key in paused:
                 continue
             try:
-                s["frame"] = [[int(v) for v in c] for c in render(s, t)]
+                s["frame"] = [[int(v) for v in c] for c in render(s, t, capability(key)["bulbs"])]
                 razer(key, razer_frame(s["frame"]))
             except Exception as e:  # one bad frame or network blip must not kill the stream
                 s["error"] = f"stream: {e}"
@@ -510,7 +544,7 @@ def schedule_tick(last, now):
                     p = dict(themes.get(t["theme"]) or BUILTIN.get(t["theme"]) or {}, **p)  # deleted since: last look
                 try:
                     push(k, p)
-                except OSError as e:
+                except (OSError, ValueError) as e:
                     st[k]["error"] = f"schedule: {e}"
                 except KeyError:
                     pass  # the light was forgotten a moment ago
@@ -536,15 +570,7 @@ def rediscover_loop():
 
 def reconnect(key):
     """Re-send power, brightness and per-bulb mode (after a power cut or a router change). Run discover() first."""
-    s = st[key]
-    paused.discard(key)
-    send(key, "turn", {"value": 1 if s["on"] else 0})
-    send(key, "brightness", {"value": s["brightness"]})
-    if s["on"]:
-        razer(key, ARM)
-    s["error"] = None
-    with lock:
-        save()
+    push(key, look(st[key]), remember=False)
 
 
 def parse_scan(raw):
@@ -565,7 +591,7 @@ def discover():
     with scan_lock:
         if DRY:
             replies = [json.dumps({"msg": {"cmd": "scan", "data": {"device": f"AA:BB:CC:DD:EE:FF:{0x1A + i:02X}:{0x2B + i:02X}",
-                                                                   "ip": f"192.168.0.{20 + i}", "sku": "H805D"}}}) for i in range(FAKE)]
+                                                                   "ip": f"192.168.0.{20 + i}", "sku": FAKE_SKUS[i % len(FAKE_SKUS)]}}}) for i in range(FAKE)]
         else:
             replies = []
             r = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -886,11 +912,11 @@ def save_theme(name, p):
         save()
 
 
-ASK = """Control 84-bulb strips. JSON only: {"say":"short sentence or one clarification question","actions":[]}.
+ASK = """Control Govee lights. Each light supplies capabilities: bulbs is its color-slot count; razer=false means only on/off, brightness, one solid color and schedules. Never request effects, painting or animations on basic lights. JSON only: {"say":"short sentence or one clarification question","actions":[]}.
 If unclear ask one short question, actions empty. Only requested changes. No code. Actions (target = light id or "selected" or "all", default selected):
-{"type":"set","target":"selected","settings":{}} settings optional keys: on boolean, brightness 1-100, effect, colors 1-6 RGB triples (integer 0-255), speed .05-5, amount .05-1, bulbs 84 RGBs, animation.
+{"type":"set","target":"selected","settings":{}} settings optional keys: on boolean, brightness 1-100, effect, colors 1-6 RGB triples (integer 0-255), speed .05-5, amount .05-1, bulbs exactly that light's count of RGBs, animation.
 Effects: wave (fast alternating fades), smoothwave (slow), shimmer (drift/twinkle), twinkle (base/sparkle), comet (base/head), fire, aurora, solid, pattern, chase, breathe, rainbow, paint, custom.
-custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}],"shift":integer -84..84,"motion":"forward|center|outward","block":1..84}. Each color spans block bulbs. 1-16 frames, 1-84 colors/pattern repeated across bulbs, duration 1/12..60 sec, fade fraction at frame end to next shifted frame. Shift bulbs each frame, loop forever. Use short patterns; speed does not affect custom. center moves from both ends inward with positive shift. Prefer custom for new looks. Never expand repeated colors: police = pattern [[255,0,0],[0,0,255]], block 42, shift 42, duration 2. Rainbow inward = 6-color pattern, block 3, shift 1, motion center.
+custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}],"shift":integer -bulbs..bulbs,"motion":"forward|center|outward","block":1..bulbs}. Each color spans block bulbs. 1-16 frames, 1..bulbs colors/pattern repeated across bulbs, duration 1/12..60 sec, fade fraction at frame end to next shifted frame. Shift bulbs each frame, loop forever. Use short patterns; speed does not affect custom. center moves from both ends inward with positive shift. Prefer custom for new looks. Never expand repeated colors: police = pattern [[255,0,0],[0,0,255]], block half the light's bulbs, shift the same, duration 2. Rainbow inward = 6-color pattern, block 3, shift 1, motion center.
 {"type":"paint","target":"selected","indices":[0,1],"color":[r,g,b]} edits only listed bulbs, 0 first.
 {"type":"schedule","target":"selected","schedule":{"add":[{"time":"HH:MM|sunset|sunset-15","action":"on|off","days":[0,1,2,3,4],"theme":"name"}],"edit":[{"id":"id","enabled":false}],"delete":["id"],"use":true}} all keys optional; edit = id + changed fields; days Mon=0..Sun=6, default every day; sunset offset -120..120 min; theme = theme or preset name, on only, omit = last look; max 10 timers per light. use = Use this app's schedule; keep unless asked. Scheduling never changes the light now; add a set action only if asked.
 {"type":"save_theme","name":"name","target":"selected"} save resulting look; selected must be one light if looks differ.
@@ -911,7 +937,7 @@ def ask_prompt(keys, text):
     def small(p):
         return {k: v for k, v in p.items() if (k != "bulbs" or bulbs) and v is not None}
     data = {"selected": keys, "lights": {k: {"name": lights[k]["name"], "look": small(look(v)),
-            "schedule": schedule[k]} for k, v in st.items()}, "presets": BUILTIN,
+            "capabilities": capability(k), "schedule": schedule[k]} for k, v in st.items()}, "presets": BUILTIN,
             "themes": {k: small(v) for k, v in themes.items()},
             "history": {k: [small(h) for h in st[k]["history"][-3:]] for k in keys},
             "chat": chat_view()["turns"], "request": text[:500]}
@@ -980,7 +1006,7 @@ def apply_answer(answer, keys):
             for k in targets:
                 if set(value) - {"on", "brightness"} and dict(looks[k], **value) != looks[k]:
                     histories[k] = (histories[k] + [looks[k]])[-HISTORY:]
-                looks[k] = dict(looks[k], **value)
+                looks[k] = dict(looks[k], **light_settings(k, value))
                 if looks[k]["effect"] == "custom" and looks[k].get("animation") is None:
                     raise ValueError("Custom effect needs an animation.")
         elif kind == "paint":
@@ -990,7 +1016,9 @@ def apply_answer(answer, keys):
                 raise ValueError("Invalid bulb indices.")
             value = {}
             for k in targets:
-                b = [[int(v) for v in c] for c in render(looks[k], time.time())]
+                if not capability(k)["razer"] or any(i >= capability(k)["bulbs"] for i in indices):
+                    raise ValueError("Per-bulb paint needs a supported light and valid bulb indices.")
+                b = [[int(v) for v in c] for c in render(looks[k], time.time(), capability(k)["bulbs"])]
                 for i in indices:
                     b[i] = a["color"]
                 value[k] = {"effect": "paint", "bulbs": b}
@@ -1103,7 +1131,7 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, theme_list())
         if self.path == "/api/state":
             saved = list(lights.items())
-            return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history"} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d
+            return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history"} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d | {"capabilities": capability(k)}
                                                for k, d in saved if k in st},
                                     "found": [{"id": k, "sku": d["sku"], "short": short(k)} for k, d in found.items() if k not in lights],
                                     "n": N, "phone": PHONE, "claude": CLAUDE, "ask": ask_on})
@@ -1188,9 +1216,10 @@ class H(BaseHTTPRequestHandler):
             if not keys or any(k not in st for k in keys):
                 return self.reply(400, {"error": "unknown light" if keys else "Set up a light first."})
             if self.path == "/api/set":
-                p = clean(dict(body.get("settings", {})))
-                for k in keys:
-                    push(k, dict(p))
+                settings = dict(body.get("settings", {}))
+                changes = {k: light_settings(k, settings) for k in keys}
+                for k, p in changes.items():
+                    push(k, p)
                 return self.reply(200, {"ok": True})
             if self.path == "/api/undo":
                 for k in keys:
@@ -1437,7 +1466,7 @@ if __name__ == "__main__":
     PHONE = f"http://{me}:{PORT}"
     for k, s in st.items():  # bring back the saved look
         if s["on"] and k not in paused:
-            send(k, "turn", {"value": 1}); send(k, "brightness", {"value": s["brightness"]}); razer(k, ARM)
+            reconnect(k)
     threading.Thread(target=streamer, daemon=True).start()
     threading.Thread(target=rediscover_loop, daemon=True).start()
     threading.Thread(target=schedule_loop, daemon=True).start()
