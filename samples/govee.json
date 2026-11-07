@@ -1,0 +1,121 @@
+{
+  "note": "Synthetic public-schema examples; no real account data or key.",
+  "devices": {
+    "code": 200,
+    "message": "success",
+    "data": [
+      {
+        "device": "AA:BB:CC:DD:EE:FF:1A:2B",
+        "sku": "H805D",
+        "deviceName": "Reading lights",
+        "type": "devices.types.light",
+        "capabilities": [
+          {
+            "type": "devices.capabilities.dynamic_scene",
+            "instance": "lightScene",
+            "parameters": {
+              "options": [
+                {
+                  "name": "Sunrise",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          {
+            "type": "devices.capabilities.dynamic_scene",
+            "instance": "snapshot",
+            "parameters": {
+              "options": [
+                {
+                  "name": "Evening",
+                  "value": 0
+                }
+              ]
+            }
+          },
+          {
+            "type": "devices.capabilities.dynamic_scene",
+            "instance": "diyScene",
+            "parameters": {
+              "options": []
+            }
+          }
+        ]
+      },
+      {
+        "device": "AA:BB:CC:DD:EE:FF:1B:2C",
+        "sku": "H805D",
+        "deviceName": "Desk lights",
+        "type": "devices.types.light",
+        "capabilities": []
+      }
+    ]
+  },
+  "scenes": {
+    "code": 200,
+    "payload": {
+      "capabilities": [
+        {
+          "type": "devices.capabilities.dynamic_scene",
+          "instance": "lightScene",
+          "parameters": {
+            "options": [
+              {
+                "name": "Ocean",
+                "value": {
+                  "id": 3867,
+                  "paramId": 4294
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "diy-scenes": {
+    "code": 200,
+    "payload": {
+      "capabilities": [
+        {
+          "type": "devices.capabilities.diy_color_setting",
+          "instance": "diyScene",
+          "parameters": {
+            "options": [
+              {
+                "name": "My gentle wave",
+                "value": 8216567
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "status": {
+    "msg": {
+      "cmd": "devStatus",
+      "data": {
+        "onOff": 1,
+        "brightness": 100,
+        "color": {
+          "r": 255,
+          "g": 255,
+          "b": 255
+        },
+        "colorTemInKelvin": 0
+      }
+    }
+  },
+  "outside": [
+    {
+      "at": "2026-11-05T18:00:00",
+      "on": true
+    },
+    {
+      "at": "2026-11-06T18:02:00",
+      "on": true
+    }
+  ]
+}
