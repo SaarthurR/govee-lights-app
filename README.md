@@ -22,14 +22,29 @@ Moving, bulb-by-bulb effects and smarter timers for Govee light strips, from any
 
 - A computer that stays on, with Python 3.10 or newer. Nothing else to install. Tested on macOS.
 - A Govee light strip with **LAN Control** on. Tested on the **H805D**. Other Govee strips that take per-bulb color over LAN may work, but are untested.
-- Optional: the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) `claude` command, signed in, for Ask Claude. Without it the chat card stays hidden.
+- Optional: the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) `claude` command, signed in, for Ask Claude. Without it the chat card stays hidden. The welcome screen asks before turning it on, and you can change it at the bottom of the page.
 
 ## Start
 
+On a Mac or Linux, paste this into Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SaarthurR/govee-lights-app/main/install.sh | sh
+```
+
+On Windows, paste this into PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/SaarthurR/govee-lights-app/main/install.ps1 | iex
+```
+
+It checks for Python 3.10 or newer, downloads this repo into `govee-lights` in your home folder (no git needed), starts the app and opens it in your browser. Run it again to start or update the app; your lights and themes are kept. Read it first: [install.sh](install.sh), [install.ps1](install.ps1).
+
+Or clone the repo, then in its folder run `python3 server.py` (on Windows: `py server.py`) and open <http://localhost:8765>.
+
 1. In the Govee Home app, open your light, tap the settings gear and turn on **LAN Control**. Do this for each light.
-2. In this folder, run `python3 server.py` (on Windows: `py server.py`).
-3. Open <http://localhost:8765>. The app lists the lights it found on your Wi-Fi. Click **Flash** next to one to make it blink, then name them and click **Save lights**.
-4. On the computer, click **Open on phone** and scan the code with your phone camera. The phone must be on the same Wi-Fi. On iPhone, tap Share, then **Add to Home Screen**.
+2. The welcome screen finds the lights on your Wi-Fi. Click **Flash** next to one to make it blink, then give each one a name.
+3. On the computer, click **Open on phone** and scan the code with your phone camera. The phone must be on the same Wi-Fi. On iPhone, tap Share, then **Add to Home Screen**.
 
 To rename or remove a light later, use **Manage lights** at the bottom of the page.
 

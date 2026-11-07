@@ -61,6 +61,7 @@ paused = set()  # outside changes suspend streaming until a user action or their
 flashing = set()  # lights blinking right now for "which one is this?"
 SAMPLE = DRY and os.environ.get("GOVEE_SAMPLE") == "1"
 CLAUDE = shutil.which("claude") is not None
+ask_on = True  # the user's Ask Claude choice; saves from before the choice count as on
 
 
 def short(dev):
@@ -249,6 +250,7 @@ def save():
     data["_govee_key"] = govee_key
     data["_outside"] = outside
     data["_paused"] = sorted(paused)
+    data["_ask"] = ask_on
     tmp = SAVE.with_suffix(".tmp")
     try:
         tmp.touch(mode=0o600, exist_ok=True)
@@ -265,8 +267,9 @@ def load():
         data = json.loads(SAVE.read_text())
     except (OSError, ValueError):
         return
-    global location, govee_key
+    global location, govee_key, ask_on
     govee_key = str(data.get("_govee_key") or "")
+    ask_on = data.get("_ask") is not False
     outside.update(data.get("_outside") or {})
     paused.update(data.get("_paused") or [])
     for dev, v in (data.get("_lights") or {}).items():
@@ -1103,7 +1106,7 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history"} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d
                                                for k, d in saved if k in st},
                                     "found": [{"id": k, "sku": d["sku"], "short": short(k)} for k, d in found.items() if k not in lights],
-                                    "n": N, "phone": PHONE, "claude": CLAUDE})
+                                    "n": N, "phone": PHONE, "claude": CLAUDE, "ask": ask_on})
         if self.path == "/api/previews":
             return self.reply(200, PREVIEWS)
         if self.path.split("?")[0] in ("/", "/index.html"):
@@ -1111,7 +1114,7 @@ class H(BaseHTTPRequestHandler):
         self.reply(404, {"error": "not found"})
 
     def do_POST(self):
-        global govee_key, govee_devices
+        global govee_key, govee_devices, ask_on
         if not self.allowed():
             return self.reply(403, {"error": "home Wi-Fi only"})
         # JSON-only blocks other websites from posting here through the user's browser (no CORS preflight answer)
@@ -1176,6 +1179,11 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/api/chat/clear":
                 chat["turns"] = []
                 return self.reply(200, {"ok": True})
+            if self.path == "/api/ask/use":
+                ask_on = body.get("use") is True
+                with lock:
+                    save()
+                return self.reply(200, {"ok": True})
             keys = list(lights) if body.get("light") == "all" else [body.get("light")]
             if not keys or any(k not in st for k in keys):
                 return self.reply(400, {"error": "unknown light" if keys else "Set up a light first."})
@@ -1189,6 +1197,8 @@ class H(BaseHTTPRequestHandler):
                     undo(k)
                 return self.reply(200, {"ok": True})
             if self.path == "/api/ask":
+                if not ask_on:
+                    raise ValueError("Ask Claude is off. Turn it on at the bottom of the page.")
                 say, changed = apply_answer(ask_claude(keys, str(body.get("text", ""))), keys)
                 for k in keys:
                     st[k]["said"] = say
@@ -1405,6 +1415,10 @@ if __name__ == "__main__":
     assert SAVE.stat().st_mode & 0o777 == 0o600
     outside.clear(); paused.clear(); govee_key = ""; load()
     assert govee_key == "sample-not-a-key" and len(outside[dev]) == 1 and dev in paused
+    ask_on = False; save(); ask_on = True; load()
+    assert ask_on is False  # "Not now" survives a restart
+    data = json.loads(SAVE.read_text()); del data["_ask"]; SAVE.write_text(json.dumps(data)); load()
+    assert ask_on is True  # a save from before the choice keeps the chat
     reconnect(dev)  # explicit user action, still DRY inside these assertions
     assert dev not in paused and dev not in json.loads(SAVE.read_text())["_paused"]
     forget_light(dev)
