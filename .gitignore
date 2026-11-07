@@ -1,0 +1,6 @@
+.venv/
+*.log
+__pycache__/
+.server-term
+state.json
+state.tmp

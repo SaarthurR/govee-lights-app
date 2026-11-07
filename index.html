@@ -1,0 +1,1004 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f6f5f2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lights">
+<title>Lights</title>
+<link rel="icon" href="data:,">
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1f; --mute:#66666b; --line:#e8e6e1; --soft:#f1efeb; --bad:#c0392b; --ease-out:cubic-bezier(.23, 1, .32, 1); }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  main { max-width:820px; margin:0 auto; padding:max(20px, env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom)); }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  h1 { font-size:30px; font-weight:700; letter-spacing:-.02em; margin:0; }
+  .tabs { display:flex; flex-wrap:wrap; gap:4px; background:#ebe9e4; padding:4px; border-radius:12px; }
+  .tabs button { border:0; background:none; padding:9px 16px; border-radius:9px; font:inherit; font-size:15px; color:var(--mute); cursor:pointer; }
+  .tabs button.on { background:#fff; color:var(--ink); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; margin-bottom:12px; }
+  .card h2 { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--mute); margin:0 0 12px; }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .grow { flex:1; min-width:140px; }
+  /* sliders: --p (0..1) is set from JS for the filled part; .drag is on while a finger or mouse holds it */
+  input[type=range] { -webkit-appearance:none; appearance:none; display:block; width:100%; height:44px; margin:0; background:none; pointer-events:none; --p:.5; --h:6px; --t:24px; }
+  .ctl:has(> input[type=range]) { touch-action:pan-y; cursor:pointer; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  .ctl:has(> input[type=range]:disabled) { cursor:default; }
+  input[type=range]::-webkit-slider-runnable-track { height:var(--h); border-radius:99px; background:linear-gradient(var(--ink), var(--ink)) 0 0 / calc(var(--t) / 2 + var(--p) * (100% - var(--t))) 100% no-repeat, #e4e2dc; transition:height 200ms var(--ease-out); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:var(--t); height:var(--t); margin-top:calc((var(--h) - var(--t)) / 2); border-radius:50%; background:#fff; box-shadow:0 0 0 .5px rgba(0,0,0,.14), 0 2px 6px rgba(0,0,0,.16); transition:margin-top 200ms var(--ease-out), scale 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
+  input[type=range].drag { --h:12px; }
+  input[type=range].drag::-webkit-slider-thumb { scale:1.12; box-shadow:0 0 0 .5px rgba(0,0,0,.14), 0 4px 12px rgba(0,0,0,.2); }
+  input[type=range]::-moz-range-track { height:var(--h); border-radius:99px; background:#e4e2dc; }
+  input[type=range]::-moz-range-progress { height:var(--h); border-radius:99px; background:var(--ink); }
+  input[type=range]::-moz-range-thumb { width:var(--t); height:var(--t); border:0; border-radius:50%; background:#fff; box-shadow:0 0 0 .5px rgba(0,0,0,.14), 0 2px 6px rgba(0,0,0,.16); }
+  input[type=range]:disabled { opacity:.35; }
+  input[type=range]:focus-visible { outline:none; }
+  input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--ink); }
+  @media (pointer:coarse) { input[type=range] { --t:28px; } }
+  .ctl b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
+  .ctl label.small { margin-bottom:2px; }
+  .btn { border:1px solid var(--line); background:#fff; border-radius:12px; padding:10px 16px; font:inherit; font-size:15px; cursor:pointer; color:var(--ink); min-height:44px; }
+  .btn.dark { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .btn:disabled { opacity:.4; cursor:default; }
+  .power { width:52px; height:32px; margin:6px 0; border-radius:16px; border:0; background:#d9d7d2; position:relative; cursor:pointer; flex:none; transition:background .2s; }
+  .power::after { content:""; position:absolute; top:3px; left:3px; width:26px; height:26px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.2); transition:transform .2s; }
+  .power.on { background:#34c759; }
+  .power.on::after { transform:translateX(20px); }
+  #schedBody { border:0; padding:0; margin:0; min-width:0; }
+  #schedBody:disabled { opacity:.45; pointer-events:none; }
+  .pages { display:flex; gap:4px; background:#ebe9e4; padding:4px; border-radius:14px; margin-bottom:12px; }
+  .pages button { flex:1; border:0; background:none; padding:10px; border-radius:10px; font:inherit; font-size:15px; color:var(--mute); cursor:pointer; display:flex; gap:6px; align-items:center; justify-content:center; }
+  .pages button.on { background:#fff; color:var(--ink); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  #toast { position:fixed; left:50%; bottom:calc(24px + env(safe-area-inset-bottom)); transform:translate(-50%, 20px); background:var(--ink); color:#fff; padding:11px 16px; border-radius:12px; font-size:14px; max-width:calc(100% - 32px); opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:20; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+  #toast.show { opacity:1; transform:translate(-50%, 0); }
+  #toast.bad { background:var(--bad); }
+  .seg { display:flex; gap:4px; background:var(--soft); padding:4px; border-radius:12px; }
+  .seg button { flex:1; border:0; background:none; padding:10px 6px; border-radius:9px; font:inherit; font-size:15px; color:var(--mute); cursor:pointer; min-height:44px; }
+  .seg button.on { background:#fff; color:var(--ink); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .wheel { display:flex; gap:4px; height:132px; background:var(--soft); border-radius:14px; position:relative; padding:0 8px; overflow:hidden; }
+  .wheel::before { content:""; position:absolute; left:8px; right:8px; top:44px; height:44px; background:#fff; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .wheel .col { flex:1; overflow-y:scroll; scroll-snap-type:y mandatory; scrollbar-width:none; position:relative; padding:44px 0; overscroll-behavior:contain; -webkit-mask:linear-gradient(transparent, #000 30%, #000 70%, transparent); mask:linear-gradient(transparent, #000 30%, #000 70%, transparent); }
+  .wheel .col::-webkit-scrollbar { display:none; }
+  .wheel .col div { height:44px; line-height:44px; text-align:center; scroll-snap-align:center; font-size:21px; color:var(--mute); cursor:pointer; font-variant-numeric:tabular-nums; user-select:none; }
+  .wheel .col div.pick { color:var(--ink); font-weight:600; }
+  .days { display:flex; gap:4px; }
+  .days button { flex:1; min-width:0; min-height:44px; border:1px solid var(--line); background:#fff; border-radius:12px; font:inherit; font-size:15px; color:var(--mute); cursor:pointer; }
+  .days button[aria-pressed=true] { background:var(--ink); border-color:var(--ink); color:#fff; font-weight:600; }
+  .timer { display:flex; align-items:center; gap:12px; border-top:1px solid var(--line); }
+  .timer:first-child { border-top:0; }
+  .timer .open { flex:1; min-width:0; min-height:64px; padding:10px 0; border:0; background:none; font:inherit; color:var(--ink); text-align:left; cursor:pointer; }
+  .timer .t { font-size:26px; font-weight:600; letter-spacing:-.02em; line-height:1.15; font-variant-numeric:tabular-nums; }
+  .timer .d { font-size:14px; color:var(--mute); margin-top:2px; }
+  .timer.off .t { color:var(--mute); }
+  .timer .power::before { content:""; position:absolute; inset:-6px -4px; }  /* 44px hit area */
+  .warn { background:#fff4de; color:#6b4300; border-radius:12px; padding:10px 12px; font-size:14px; margin:10px 0 0; text-wrap:pretty; }
+  #timerSheet { border:0; padding:0; background:none; width:min(100% - 24px, 460px); max-width:100%; max-height:calc(100dvh - 24px); overscroll-behavior:contain; }
+  #timerSheet::backdrop { background:rgba(0,0,0,.35); }
+  #timerSheet .card { margin:0; }
+  #timerSheet[open] .card { animation:rise 250ms ease-out both; }
+  #timerSheet h2 { font-size:17px; font-weight:600; text-transform:none; letter-spacing:-.01em; color:var(--ink); }
+  .summary { font-size:17px; font-weight:600; letter-spacing:-.01em; line-height:1.35; }
+  .summary small { display:block; font-size:14px; font-weight:400; color:var(--mute); margin-top:4px; }
+  [hidden] { display:none !important; }
+  .sub { text-transform:none; letter-spacing:0; font-weight:400; }
+  .controls { display:flex; align-items:flex-end; gap:16px; }
+  .paintbar { display:none; flex-wrap:wrap; gap:8px; align-items:center; background:var(--soft); border-radius:14px; padding:10px; margin:-4px 0 14px; }
+  .paintbar.on { display:flex; animation:rise 200ms var(--ease-out) both; }
+  .paintbar .btn { padding:0 14px; }
+  .paintbar .hint { width:100%; margin:0 2px; }
+  .selcount { font-weight:600; font-size:15px; margin:0 4px; font-variant-numeric:tabular-nums; }
+  .strip { display:grid; grid-template-columns:repeat(21, minmax(0, 1fr)); gap:5px; margin-bottom:14px; }
+  .bulb { min-width:0; width:100%; aspect-ratio:1; border-radius:50%; border:0; padding:0; background:#222; box-shadow:inset 0 0 0 1px rgba(0,0,0,.08); cursor:pointer; outline-offset:2px; }
+  .bulb.sel { outline:3px solid var(--ink); outline-offset:1px; }
+  .ask { display:flex; gap:8px; }
+  .ask input { flex:1; min-width:0; border:1px solid var(--line); border-radius:12px; padding:12px 14px; font:inherit; background:var(--soft); }
+  .ask input:focus { outline:2px solid var(--ink); outline-offset:-1px; background:#fff; }
+  .ask input::placeholder { color:var(--mute); }
+  .head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:-6px 0 6px; }
+  .head h2 { margin:0; }
+  /* small secondary action: 32px pill, 44px hit area */
+  .linkbtn { position:relative; display:inline-flex; align-items:center; gap:5px; border:0; background:var(--soft); border-radius:99px; font:inherit; font-size:14px; font-weight:500; color:var(--ink); cursor:pointer; padding:0 12px; min-height:32px; white-space:nowrap; }
+  .linkbtn::after { content:""; position:absolute; inset:-6px 0; }
+  .linkbtn:disabled { color:var(--mute); background:none; cursor:default; }
+  .linkbtn .i { width:16px; height:16px; margin-left:-2px; }
+  .i { width:20px; height:20px; flex:none; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .alert { display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#fdecea; color:var(--bad); border-radius:14px; padding:10px 10px 10px 14px; margin-bottom:14px; font-size:15px; font-weight:500; }
+  .alert span { flex:1; min-width:160px; }
+  .alert .btn { border-color:#f3c6c0; color:var(--bad); }
+  #footApp { display:contents; }
+  .list { margin:8px 0 0; padding-left:20px; font-size:14px; line-height:1.5; }
+  details { margin-top:16px; border-top:1px solid var(--line); }
+  summary { cursor:pointer; font-size:15px; padding:14px 0 0; }
+  .foot { text-align:center; font-size:14px; color:var(--mute); margin:20px 0 0; display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; }
+  .log { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow-y:auto; overscroll-behavior:contain; margin-bottom:12px; }
+  .msg { max-width:85%; padding:9px 13px; border-radius:16px; font-size:15px; line-height:1.35; overflow-wrap:anywhere; }
+  .msg.new { animation:rise 200ms ease-out both; }
+  .msg.me { align-self:flex-end; background:var(--ink); color:#fff; border-bottom-right-radius:6px; }
+  .msg.ai { align-self:flex-start; background:var(--soft); border-bottom-left-radius:6px; }
+  .msg.err { background:#fdecea; color:var(--bad); }
+  .msg.busy { color:var(--mute); animation:pulse 1.2s ease-in-out infinite; }
+  .acts { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .acts .chip { background:#fff; }
+  .chips { display:flex; gap:10px 6px; flex-wrap:wrap; margin-top:10px; }
+  /* 34px pill, 44px hit area; the 10px row gap keeps wrapped hit areas from overlapping */
+  .chip { position:relative; border:1px solid var(--line); background:var(--soft); border-radius:999px; padding:0 12px; min-height:34px; font:inherit; font-size:13px; color:var(--ink); cursor:pointer; white-space:nowrap; }
+  .chip::after { content:""; position:absolute; inset:-5px 0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:10px; }
+  .tile { border:1px solid var(--line); background:#fff; border-radius:14px; padding:10px; text-align:left; font:inherit; color:var(--ink); cursor:pointer; }
+  .tile.on { border-color:var(--ink); box-shadow:inset 0 0 0 1px var(--ink); }
+  .tile canvas { width:100%; height:26px; display:block; border-radius:8px; background:#141414; margin-bottom:8px; }
+  .tile span { font-size:14px; font-weight:500; }
+  .group-title { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--mute); margin:0 0 12px; }
+  .group + .group { margin-top:18px; }
+  .wrap { position:relative; }
+  .wrap .tile { width:100%; height:100%; }
+  .del { position:absolute; top:-8px; right:-8px; width:30px; height:30px; border-radius:50%; border:0; background:rgba(255,255,255,.9); color:var(--mute); font-size:18px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.15); }
+  .field { font:inherit; font-size:16px; border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:#fff; min-height:44px; color:var(--ink); width:100%; }
+  .swatches { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .sw { width:34px; height:34px; border-radius:50%; border:1px solid rgba(0,0,0,.12); cursor:pointer; padding:0; }
+  .colors input.picked { outline:3px solid var(--ink); outline-offset:1px; }
+  .colors { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  input[type=color] { width:44px; height:44px; border:1px solid var(--line); border-radius:12px; padding:3px; background:#fff; cursor:pointer; }
+  .x { border:0; background:none; color:var(--mute); cursor:pointer; font-size:20px; width:28px; min-height:44px; margin:0 2px 0 -6px; padding:0; }
+  label.small { font-size:13px; color:var(--mute); display:block; }
+  .hint { font-size:13px; color:var(--mute); margin-top:10px; text-wrap:pretty; }
+  #mythemes:empty + .hint { margin-top:0; }
+  .head-right { display:flex; gap:8px; align-items:center; }
+  .lrow + .lrow { margin-top:14px; }
+  .lrow .row { flex-wrap:nowrap; margin-top:4px; }
+  .lrow .field { flex:1; min-width:0; }
+  .chk { display:flex; align-items:center; gap:8px; min-height:44px; padding:0 4px; font-size:15px; cursor:pointer; white-space:nowrap; }
+  .chk input { width:20px; height:20px; margin:0; accent-color:var(--ink); }
+  .steps { margin:12px 0 0; padding-left:22px; display:flex; flex-direction:column; gap:8px; text-wrap:pretty; }
+  .setup-intro { margin:-4px 0 16px; color:var(--mute); font-size:15px; text-wrap:pretty; }
+  .locbox { background:var(--soft); border-radius:14px; padding:12px; margin-top:12px; }
+  .locbox .ask input { background:#fff; }
+  #qrBox { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; padding:16px; z-index:9; }
+  #qrBox.on { display:flex; }
+  #qrBox .card { text-align:center; max-width:320px; width:100%; padding:20px; }
+  #qrBox h2 { font-size:17px; font-weight:600; text-transform:none; letter-spacing:-.01em; color:var(--ink); }
+  #qr { display:flex; justify-content:center; margin:8px 0 12px; }
+  #qrLink { font-size:15px; word-break:break-all; color:var(--ink); }
+  /* feel: press, hover, fades */
+  button, .btn, .chip, .tile, .sw, .bulb, input[type=color] { transition-property:scale, background-color, border-color, box-shadow, color; transition-duration:150ms; transition-timing-function:ease-out; }
+  button:not(:disabled):active, input[type=color]:active { scale:.96; }
+  .bulb { transition:background-color 150ms linear, scale 150ms ease-out; }
+  .btn.dark:disabled { opacity:1; background:var(--soft); color:var(--mute); border-color:var(--soft); }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
+  @keyframes pulse { 50% { opacity:.4; } }
+  @keyframes rise { from { opacity:0; translate:0 8px; } }
+  @keyframes fade { from { opacity:0; } }
+  [data-page]:not([hidden]) { animation:rise 250ms ease-out both; }
+  #qrBox.on { animation:fade 200ms ease-out both; }
+  #qrBox.on .card { animation:rise 250ms ease-out both; }
+  @media (hover:hover) {
+    .btn:not(:disabled):hover, .chip:hover, .days button[aria-pressed=false]:hover { border-color:#cfccc5; }
+    .btn.dark:not(:disabled):hover { background:#3a3a3c; }
+    .tile:not(.on):hover { border-color:#cfccc5; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+    .tabs button:not(.on):hover, .pages button:not(.on):hover, .seg button:not(.on):hover, .x:hover { color:var(--ink); }
+    .sw:hover, .bulb:hover { scale:1.08; }
+  }
+  @media (pointer:coarse) {
+    .tabs button { min-height:44px; }
+    .del::after { content:""; position:absolute; inset:-7px; }
+  }
+  @media (prefers-reduced-motion:reduce) {
+    [data-page], #qrBox .card, #timerSheet .card, .msg.new, .paintbar.on { animation-name:fade !important; }
+    * { scale:none !important; }
+    input[type=range]::-webkit-slider-thumb { scale:none !important; transition:none; }
+    input[type=range]::-webkit-slider-runnable-track { transition:none; }
+    #toast { transform:translate(-50%, 0); }
+  }
+  @media (max-width:560px) {
+    .head-right > .btn { display:none; }
+    /* one swipeable row instead of 2-3 wrapped rows; bleeds to the card edge and fades there */
+    #chips, .swatches { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin-left:-16px; margin-right:-16px; padding:0 16px; overscroll-behavior-x:contain;
+      -webkit-mask:linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 24px), transparent); mask:linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 24px), transparent); }
+    #chips { padding-block:5px; margin-top:5px; margin-bottom:-5px; }  /* room for the chips' hit areas inside the scroller */
+    #chips::-webkit-scrollbar, .swatches::-webkit-scrollbar { display:none; }
+    .chip, .sw { flex:none; }
+    .tile { padding:8px; }
+    .tile canvas { margin-bottom:6px; }
+    .pages { position:fixed; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); margin:0; z-index:10; box-shadow:0 4px 18px rgba(0,0,0,.12); background:#e9e7e2; }
+    .pages button { flex-direction:column; gap:1px; font-size:12px; padding:6px 4px 5px; }
+    .pages .i { width:22px; height:22px; }
+    main { padding-bottom:calc(100px + env(safe-area-inset-bottom)); }
+    #toast { bottom:calc(92px + env(safe-area-inset-bottom)); }
+    .head-right { flex-direction:column; align-items:stretch; }
+    header { flex-direction:column; align-items:stretch; }
+    .tabs button { flex:1; }
+    .strip { grid-template-columns:repeat(12, minmax(0, 1fr)); gap:4px; }
+    .fx { flex-direction:column; align-items:stretch; gap:4px !important; }
+    .grid { grid-template-columns:repeat(2, 1fr); }
+    #timerSheet { width:100%; max-height:calc(100dvh - 12px); margin:auto 0 0; }  /* bottom sheet */
+    #timerSheet .card { border-radius:18px 18px 0 0; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Lights</h1>
+    <div class="head-right">
+    <div class="tabs" id="tabs" hidden></div>
+    <button class="btn" onclick="showQR()">Open on phone</button>
+    </div>
+  </header>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="qrBox" role="dialog" aria-modal="true" aria-label="Open on phone" onclick="if(event.target===this)hideQR()">
+    <div class="card">
+      <h2>Scan with your phone camera</h2>
+      <div id="qr"></div>
+      <a id="qrLink"></a>
+      <div class="hint">Your phone must be on the same Wi-Fi as this computer.</div>
+      <button class="btn" style="margin-top:12px;width:100%" onclick="hideQR()">Done</button>
+    </div>
+  </div>
+
+  <section id="account" class="card" hidden>
+    <h2>Govee account <span class="sub">· optional</span></h2>
+    <p class="hint" style="margin:0 0 12px">Reads light names and scene names from Govee. It never changes anything in Govee Home or on a light.</p>
+    <form id="goveeForm">
+      <label class="small" for="goveeKey">Govee API key</label>
+      <input class="field" style="width:100%;margin:8px 0" id="goveeKey" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste API key" aria-describedby="keyHint">
+      <p class="hint" id="keyHint">Get a key in Govee Home: Profile → Settings → Apply for API key. It is saved only in state.json on this computer and sent only to Govee. Anyone who can open that file can read it.</p>
+      <button class="btn dark" id="connectGovee">Connect Govee account</button>
+      <button type="button" class="btn" id="disconnectGovee" onclick="disconnectAccount()" hidden>Disconnect Govee</button>
+    </form>
+    <p class="hint" id="goveeStatus" role="status"></p>
+    <button class="btn" onclick="toggleAccount()">Done</button>
+  </section>
+  <section id="setup" hidden>
+  <div class="card">
+    <h2 id="setupTitle">Set up your lights</h2>
+    <p class="setup-intro" id="setupIntro"></p>
+    <div id="setupList"></div>
+    <div id="setupEmpty" hidden>
+      <div class="summary" id="emptyTitle">No lights found yet</div>
+      <ol class="steps">
+        <li>In the Govee Home app, open your light, tap the settings gear and turn on <b>LAN Control</b>.</li>
+        <li>Make sure the light and this computer are on the same Wi-Fi.</li>
+        <li>Tap <b>Scan again</b>. It takes about 3 seconds.</li>
+      </ol>
+    </div>
+    <div class="row" style="margin-top:20px">
+      <button class="btn" id="scanBtn" onclick="scan()">Scan again</button>
+      <button class="btn dark grow" id="setupSave" onclick="saveSetup()">Save lights</button>
+    </div>
+  </div>
+  <button class="btn" id="setupDone" style="width:100%" onclick="closeSetup()" hidden>Done</button>
+  </section>
+
+  <div id="app">
+  <nav class="pages" id="pages">
+    <button data-p="control" class="on"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/></svg>Control</button>
+    <button data-p="themes"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4c.6 4.3 2.7 6.4 7 7-4.3.6-6.4 2.7-7 7-.6-4.3-2.7-6.4-7-7 4.3-.6 6.4-2.7 7-7z"/></svg>Themes</button>
+    <button data-p="schedule"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/></svg>Schedule</button>
+  </nav>
+
+  <div class="card">
+    <div class="head">
+      <h2>Live <span class="sub">· tap bulbs to recolor</span></h2>
+      <button class="linkbtn" id="undo" onclick="undo()" title="Go back to the last look" disabled><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo</button>
+    </div>
+    <div class="alert" id="alert" role="alert" hidden><span id="alertText"></span><button class="btn" id="alertFix" onclick="reconnect(this)">Reconnect</button></div>
+    <div class="strip" id="strip"></div>
+    <div class="paintbar" id="paintbar">
+      <span id="selCount" class="selcount"></span>
+      <input type="color" id="pick" value="#ffffff" aria-label="Paint color">
+      <button class="btn dark" onclick="paint()">Paint them</button>
+      <span class="grow" style="min-width:0"></span>
+      <button class="btn" onclick="selectEvery(2)">Every 2nd</button>
+      <button class="btn" onclick="selectEvery(1)">All</button>
+      <button class="btn" onclick="sel.clear();draw()">Cancel</button>
+      <div class="hint">Pick a color, then tap “Paint them”. The lights stop moving and show exactly this.</div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label class="small" for="power">Power</label><button class="power" id="power" aria-label="Power"></button></div>
+      <div class="ctl grow"><label class="small" for="bright">Brightness <b id="brightVal" aria-hidden="true">100%</b></label><input type="range" id="bright" min="1" max="100" value="100"></div>
+    </div>
+  </div>
+
+  <section data-page="control">
+  <div class="card" id="askCard" hidden>
+    <div class="head"><h2>Ask Claude</h2><button class="linkbtn" id="newChat" hidden onclick="newChat()">New chat</button></div>
+    <div class="log" id="log" hidden aria-live="polite"></div>
+    <form class="ask" id="askForm">
+      <input id="askText" placeholder="Make it slower and more gold…" autocomplete="off" enterkeyhint="send">
+      <button class="btn dark" id="askBtn">Send</button>
+    </form>
+    <div class="chips" id="chips"></div>
+    <div class="hint" id="chatHint" hidden>Claude forgets this chat after 5 quiet minutes, so each ask stays cheap.</div>
+  </div>
+
+  <div class="card">
+    <h2>Colors</h2>
+    <div class="colors" id="colors"></div>
+    <div class="swatches" id="swatches" aria-label="Quick colors"></div>
+    <div class="hint" style="margin-top:6px">Tap a color to pick it, then tap a swatch to swap it in.</div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" onclick="saveTheme()">Save as theme</button>
+      <button class="btn" id="swap" onclick="swapColors()">Swap colors</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Effects <span class="sub">· uses your colors</span></h2>
+    <div class="row fx" style="gap:16px;margin:-4px 0 12px">
+      <div class="ctl grow"><label class="small" for="speed">Speed <b id="speedVal" aria-hidden="true"></b></label><input type="range" id="speed" min="0.1" max="4" step="0.05" value="1"></div>
+      <div class="ctl grow"><label class="small" for="amount"><span id="amountLabel">Amount</span> <b id="amountVal" aria-hidden="true"></b></label><input type="range" id="amount" min="0.05" max="1" step="0.01" value="0.5"></div>
+    </div>
+    <div class="grid" id="effects"></div>
+  </div>
+  </section>
+
+  <section data-page="themes" hidden>
+  <div class="card">
+    <h2>My themes</h2>
+    <div class="grid" id="mythemes"></div>
+    <div class="hint" id="themesHint">No themes yet. Set up a look on Control, then tap “Save as theme”.<span id="themesAsk" hidden> Or ask Claude: “save this as movie night”.</span></div>
+  </div>
+  <div class="card" id="groups"></div>
+  <div class="card" id="goveeGroup" hidden>
+    <h2>Govee scenes</h2>
+    <p class="hint" style="margin:0">Read from your Govee account. To play or edit a scene, use the Govee Home app.</p>
+    <p class="hint" id="goveeSceneNote"></p>
+    <ul class="list" id="goveeScenes"></ul>
+  </div>
+  </section>
+
+  <section data-page="schedule" hidden>
+  <div class="card">
+    <h2>Schedule <span class="sub" id="schedFor"></span></h2>
+    <label class="row" for="useSched" style="justify-content:space-between;min-height:44px;cursor:pointer">Use this app's schedule<button class="power" id="useSched" aria-describedby="schedOffNote"></button></label>
+    <p class="hint" id="schedOffNote" style="margin-top:0" hidden>Off. Use the timers in the Govee Home app instead. This app won't turn your lights on or off on its own.</p>
+    <fieldset id="schedBody">
+    <div id="outsideWarnings" role="status"></div>
+    <div id="timers"></div>
+    <button class="btn dark" id="addTimer" style="margin-top:12px;width:100%" onclick="openTimer()">+ Add timer</button>
+    <p class="hint" id="timerCap" hidden>Up to 10 timers per light. Delete one to add another.</p>
+    <div class="row" id="sunRow" style="margin-top:12px;gap:8px" hidden><span class="hint" id="sunText" style="margin:0"></span><button class="linkbtn" onclick="toggleLoc()">Change location</button></div>
+    <div class="locbox" id="locBox" hidden>
+      <div id="locNote" style="font-size:15px">To use sunset in a timer, add your location.</div>
+      <button class="btn" id="geoBtn" style="margin-top:10px;width:100%" onclick="useMyLocation()" hidden>Use my location</button>
+      <form class="ask" id="locForm" style="margin-top:10px;flex-wrap:wrap">
+        <label class="small" for="loc" style="width:100%">Latitude, longitude</label>
+        <input id="loc" placeholder="51.50, -0.13" autocomplete="off" aria-describedby="locHint">
+        <button class="btn dark">Save</button>
+      </form>
+      <div class="hint" id="locHint">In a map app, press and hold your home, then copy the two numbers it shows. Only this computer keeps it, rounded to about 1 km.</div>
+    </div>
+    </fieldset>
+    <div class="hint">An On timer shows your last look unless you pick a theme. The schedule only runs while this computer is on and running the app.</div>
+    <details><summary>Lights turning on or off by themselves?</summary>
+      <p class="hint">Timers and automations made in the Govee Home app keep running alongside this schedule. To find one, open the light in Govee Home and check Timer, then Automation. This app never changes them.</p>
+      <p class="hint">While this computer is awake, the app notes when something else turns a light on or off. If it happens at about the same time on two different days, a warning shows under the schedule.</p>
+      <ul class="list" id="outsideEvents"></ul>
+    </details>
+  </div>
+  </section>
+  </div>
+  <dialog id="timerSheet" aria-labelledby="timerTitle"><div class="card">
+    <h2 id="timerTitle">Add timer</h2>
+    <div class="seg" id="actSeg"><button data-v="on">Turn on</button><button data-v="off">Turn off</button></div>
+    <div class="seg" id="whenSeg" style="margin-top:12px"><button data-v="time">At a time</button><button data-v="sunset">At sunset</button></div>
+    <p class="hint" id="noSun">To use sunset, add your location under the timers.</p>
+    <div class="wheel" id="timeWheel" style="margin-top:12px" aria-label="Time"></div>
+    <div class="ctl" id="offsetRow" style="margin-top:8px"><label class="small" for="offset"><b id="offsetVal" aria-hidden="true"></b></label><input type="range" id="offset" min="-120" max="120" step="5" value="0"></div>
+    <div id="lookRow" style="margin-top:12px"><label class="small" for="timerLook" style="margin-bottom:6px">Look</label><select class="field" id="timerLook"></select></div>
+    <div class="group-title" style="margin:16px 0 8px" id="tDaysTitle">Repeat</div>
+    <div class="days" id="days" role="group" aria-labelledby="tDaysTitle"></div>
+    <div class="chips" id="dayQuick"></div>
+    <p class="warn" id="sheetClash" role="status" hidden></p>
+    <div class="row" style="margin-top:16px;flex-wrap:nowrap">
+      <button class="btn" id="delTimer" style="color:var(--bad)" onclick="deleteTimer()">Delete</button>
+      <span class="grow" style="min-width:0"></span>
+      <button class="btn" onclick="$('timerSheet').close()">Cancel</button>
+      <button class="btn dark" onclick="saveTimer()">Save</button>
+    </div>
+  </div></dialog>
+  <p class="foot"><span id="footApp">Lights not responding? <button class="linkbtn" onclick="reconnect(this)" title="Finds the lights again, for example after a power cut or a router change">Reconnect</button>
+    <button class="linkbtn" onclick="openSetup()">Manage lights</button></span>
+    <button class="linkbtn" id="settingsBtn" onclick="toggleAccount()">Govee account</button></p>
+</main>
+<script>
+let govee = {connected:false, devices:[]}, sceneRead = 0;
+let N = 84, light = '', state = null, sel = new Set(), last = null, clips = [];
+const $ = id => document.getElementById(id);
+const hex = h => [1,3,5].map(i => parseInt(h.slice(i,i+2),16));
+const toHex = c => '#' + c.map(x => Math.round(x).toString(16).padStart(2,'0')).join('');
+const NAMES = {wave:'Wave', smoothwave:'Smooth wave', shimmer:'Shimmer', twinkle:'Twinkle', comet:'Comet', fire:'Fire', aurora:'Aurora', solid:'Solid', pattern:'Pattern', chase:'Chase', breathe:'Breathe', rainbow:'Rainbow'};
+const AMOUNT = {wave:'Delay between bulbs', smoothwave:'Delay between bulbs', shimmer:'Depth', twinkle:'How many sparkle', comet:'How close together', fire:'Flicker', aurora:'Band size', chase:'Block size'};
+const CHIPS = ['Slower', 'Faster', 'More gold', 'More silver', 'Dimmer', 'Surprise me', 'Change it back'];
+const ids = () => state ? Object.keys(state.lights) : [];
+const lead = () => light === 'all' ? ids()[0] : light;  // "All" shows and edits from the first light
+const cur = () => state && state.lights[lead()];
+const nameOf = k => (state && state.lights[k] || {}).name || '';
+const and = a => new Intl.ListFormat('en', {type:'conjunction'}).format(a);
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+let toastTimer;
+function toast(msg, bad) {
+  const t = $('toast'); t.textContent = (bad ? '✕ ' : '✓ ') + msg; t.className = 'show' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = bad ? 'bad' : '', bad ? 4500 : 2200);
+}
+const where = () => light === 'all' ? 'all lights' : nameOf(light);
+const OFFLINE = 'Can’t reach the app. Check it’s still running on your computer.';
+async function post(path, body, okMsg) {
+  try {
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({light, ...body})});
+    const j = await r.json();
+    if (j.error) toast(j.error, true); else if (okMsg) toast(okMsg);
+    refresh(); return j;
+  } catch (e) { toast(OFFLINE, true); }
+}
+const set = (s, msg) => post('/api/set', {settings: s}, msg || `Updated ${where()}`);
+const undo = () => post('/api/undo', {}, 'Went back one step');
+
+// previews: tiny strips animated from frames the server rendered with the real effect code
+function tile(box, name, frames, onclick) {
+  const b = document.createElement('button'); b.className = 'tile';
+  const cv = document.createElement('canvas'); cv.width = 240; cv.height = 26;
+  const s = document.createElement('span'); s.textContent = name;
+  b.append(cv, s); b.onclick = onclick; box.appendChild(b);
+  clips.push({cv, frames}); return b;
+}
+function animate() {
+  const f = Math.floor(performance.now() / 83);
+  clips = clips.filter(c => c.cv.isConnected);
+  for (const {cv, frames} of clips) {
+    const ctx = cv.getContext('2d'), fr = frames[f % frames.length], w = cv.width / fr.length;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    fr.forEach((c, i) => { ctx.fillStyle = `rgb(${c})`; ctx.beginPath(); ctx.arc(w * i + w / 2, 13, Math.min(w / 2 - 1.5, 8), 0, 7); ctx.fill(); });
+  }
+  requestAnimationFrame(animate);
+}
+async function loadPreviews() {
+  try {
+    const p = await (await fetch('/api/previews')).json();
+    lookNames.presets = p.groups.flatMap(([, items]) => items.map(([name]) => name));
+    p.groups.forEach(([title, items]) => {
+      const g = document.createElement('div'); g.className = 'group';
+      g.innerHTML = `<div class="group-title">${title}</div><div class="grid"></div>`; $('groups').appendChild(g);
+      items.forEach(([name, s, frames]) => { const b = tile(g.lastChild, name, frames, () => set({...s, on:true}, `${name} on ${where()}`)); b.dataset.look = JSON.stringify(s); });
+    });
+    Object.entries(p.effects).forEach(([e, frames]) => { const b = tile($('effects'), NAMES[e] || e, frames, () => set({effect:e, on:true}, `${NAMES[e] || e} on ${where()}`)); b.dataset.e = e; });
+    await loadThemes(); animate(); syncControls(); drawTimers();
+  } catch (e) { setTimeout(loadPreviews, 2000); }
+}
+async function loadThemes() {
+  const list = await (await fetch('/api/themes')).json();
+  lookNames.themes = list.map(([name]) => name);
+  $('mythemes').innerHTML = '';
+  $('themesHint').style.display = list.length ? 'none' : '';
+  list.forEach(([name, s, frames]) => {
+    const w = document.createElement('div'); w.className = 'wrap'; $('mythemes').appendChild(w);
+    const b = tile(w, name, frames, () => set({...s, on:true}, `${name} on ${where()}`)); b.dataset.look = JSON.stringify(s);
+    const x = document.createElement('button'); x.className = 'del'; x.textContent = '×'; x.setAttribute('aria-label', 'Delete ' + name);
+    x.onclick = async () => { if (confirm(`Delete “${name}”?`)) { await post('/api/theme/delete', {name}, `Deleted “${name}”`); loadThemes(); } };
+    w.appendChild(x);
+  });
+}
+async function saveTheme() {
+  const s = cur(); if (!s) return;
+  const name = (prompt('Name this theme (same name = update it):') || '').trim(); if (!name) return;
+  const j = await post('/api/theme', {name}, `Saved “${name}” to My themes`); if (j && j.ok) loadThemes();
+}
+const EVERY = [0, 1, 2, 3, 4, 5, 6];  // 0 = Monday, as on the server
+let sched = {}, draft = null, sunsetToday = '', lookNames = {themes: [], presets: []};
+const fmt = hm => { const [h, m] = hm.split(':').map(Number); return `${(h % 12) || 12}:${String(m).padStart(2,'0')} ${h < 12 ? 'AM' : 'PM'}`; };
+const DAYS = [[6, 'S', 'Sunday'], [0, 'M', 'Monday'], [1, 'T', 'Tuesday'], [2, 'W', 'Wednesday'], [3, 'T', 'Thursday'], [4, 'F', 'Friday'], [5, 'S', 'Saturday']];
+const SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const repeat = (days, night) => {
+  const k = days.join(), s = night ? ' nights' : 's';
+  if (k === EVERY.join()) return night ? 'Every night' : 'Every day';
+  if (k === '0,1,2,3,4') return 'Weekday' + s;
+  if (k === '5,6') return 'Weekend' + s;
+  if (days.length === 6) return (night ? 'Every night but ' : 'Every day but ') + SHORT[EVERY.find(d => !days.includes(d))];
+  return days.map(d => SHORT[d]).join(', ') + (night ? ' nights' : '');
+};
+const mins = hm => { const [h, m] = hm.split(':').map(Number); return h * 60 + m; };
+const hhmm = t => `${String(Math.floor(t / 60)).padStart(2,'0')}:${String(t % 60).padStart(2,'0')}`;
+const offsetOf = spec => +(spec.slice(6) || 0);
+const sunsetSpec = m => m ? `sunset${m > 0 ? '+' : ''}${m}` : 'sunset';
+const offsetWords = m => m ? `Sunset ${m < 0 ? '−' : '+'}${Math.abs(m)} min` : 'Sunset';
+const timeOf = spec => !spec.startsWith('sunset') ? spec : sunsetToday ? hhmm((mins(sunsetToday) + offsetOf(spec) + 1440) % 1440) : null;
+const hasLook = n => lookNames.themes.includes(n) || lookNames.presets.includes(n);
+// as on the server: an off timer before every on timer of its light ends the evening before ("Sat, Sun nights")
+const isNight = (t, ts) => { const ons = ts.filter(o => o.action === 'on' && timeOf(o.time)).map(o => mins(timeOf(o.time))); return t.action === 'off' && ons.length > 0 && mins(timeOf(t.time) || '00:00') < Math.min(...ons); };
+function clashes(ts) {  // enabled timers of one light acting within 5 minutes of each other on a shared day (sunset as today)
+  const fires = t => isNight(t, ts) ? t.days.map(d => (d + 1) % 7) : t.days;
+  const live = ts.filter(t => t.enabled && timeOf(t.time)), out = [];
+  live.forEach((a, i) => live.slice(i + 1).forEach(b => {
+    const gap = Math.abs(mins(timeOf(a.time)) - mins(timeOf(b.time))), shared = fires(a).filter(d => fires(b).includes(d)).sort();
+    if (gap <= 5 && shared.length) out.push([a, b, gap, shared]);
+  }));
+  return out;
+}
+const label = t => `${t.action === 'on' ? 'On' : 'Off'} at ${fmt(timeOf(t.time))}`;
+function clashWords([a, b, gap, days]) {
+  if (mins(timeOf(a.time)) > mins(timeOf(b.time))) [a, b] = [b, a];
+  const then = a.action === b.action ? 'One of them does nothing.' : `The light turns ${a.action} and right back ${b.action}.`;
+  return `“${label(a)}” and “${label(b)}” ${gap ? `are only ${gap} min apart` : 'happen at the same minute'} ${days.length === 7 ? 'every day' : 'on ' + days.map(d => SHORT[d]).join(', ')}. ${then}`;
+}
+function relDay(at) {
+  const days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5), h = at.getHours();
+  if (days === 0) return h >= 17 ? 'tonight' : 'today';
+  if (days === 1) return h < 4 ? 'tonight' : 'tomorrow';
+  return 'on ' + at.toLocaleDateString('en', {weekday: 'long'});
+}
+function nextWords(sc) {
+  if (!sc.timers.length) return 'No timers yet. The lights only change when you change them.';
+  const t = sc.next && sc.timers.find(x => x.id === sc.next.id);
+  if (!t) return 'Nothing coming up. All timers are off.';
+  return `Next: ${t.action === 'on' ? 'On' : 'Off'} at ${fmt(sc.next.at.slice(11))} ${relDay(new Date(sc.next.at))}${t.theme && hasLook(t.theme) ? ' with ' + t.theme : ''}`;
+}
+function timerRow(k, t, ts) {
+  const r = document.createElement('div'); r.className = 'timer' + (t.enabled ? '' : ' off');
+  const b = document.createElement('button'); b.className = 'open'; b.onclick = () => openTimer(k, t);
+  const big = document.createElement('div'); big.className = 't';
+  const sun = t.time.startsWith('sunset'); big.textContent = sun ? offsetWords(offsetOf(t.time)) : fmt(t.time);
+  const d = document.createElement('div'); d.className = 'd';
+  d.textContent = [sun && sunsetToday && 'today ' + fmt(timeOf(t.time)), t.action === 'on' ? 'On' : 'Off', repeat(t.days, isNight(t, ts)), t.theme && hasLook(t.theme) && t.theme].filter(Boolean).join(' · ');
+  b.setAttribute('aria-label', `Edit timer: ${big.textContent}, ${d.textContent}`); b.append(big, d);
+  const sw = document.createElement('button'); sw.className = 'power' + (t.enabled ? ' on' : ''); sw.setAttribute('aria-pressed', t.enabled);
+  sw.setAttribute('aria-label', `Use timer ${big.textContent} ${t.action}`);
+  sw.onclick = () => saveTimers(k, {edit: [{id: t.id, enabled: !t.enabled}]}, `Timer ${t.enabled ? 'off' : 'on'}`);
+  r.append(b, sw); return r;
+}
+function drawTimers() {
+  const keys = light === 'all' ? ids() : [light], out = [];
+  for (const k of keys) {
+    const sc = sched[k]; if (!sc) continue;
+    const el = (tag, cls, text) => { const x = document.createElement(tag); x.className = cls; x.textContent = text; out.push(x); return x; };
+    if (keys.length > 1) el('div', 'group-title', nameOf(k)).style.margin = out.length > 1 ? '20px 0 6px' : '0 0 6px';
+    if (sc.use) el('div', 'summary', nextWords(sc));
+    clashes(sc.timers).forEach(c => el('p', 'warn', clashWords(c)));
+    const at = t => mins(timeOf(t.time) || '00:00') + (isNight(t, sc.timers) ? 1440 : 0);  // a night's off sorts after its evening
+    el('div', 'timers', '').append(...[...sc.timers].sort((a, b) => at(a) - at(b)).map(t => timerRow(k, t, sc.timers)));
+  }
+  $('timers').replaceChildren(...out);
+  const full = keys.some(k => (sched[k] || {timers: []}).timers.length >= 10);
+  $('addTimer').disabled = full; $('timerCap').hidden = !full;
+}
+async function loadSchedule() {
+  try {
+    const d = await (await fetch('/api/schedule')).json(); drawOutside(d.outside || {}); sched = d; sunsetToday = d.sunset;
+    $('sunRow').hidden = !d.sunset; $('sunText').textContent = d.sunset ? `Sunset today is ${fmt(d.sunset)}.` : '';
+    if (!d.sunset) $('locBox').hidden = false;
+    if (d.location && !$('loc').value) $('loc').value = d.location.join(', ');
+    const sc = d[lead()]; if (!sc) return;
+    $('useSched').classList.toggle('on', sc.use); $('useSched').setAttribute('aria-pressed', sc.use);
+    $('schedBody').disabled = !sc.use; $('schedOffNote').hidden = sc.use;
+    $('schedFor').textContent = '· ' + where();
+    drawTimers();
+  } catch (e) {}
+}
+const toggleLoc = () => { $('locBox').hidden = !$('locBox').hidden; if (!$('locBox').hidden) $('loc').focus(); };
+$('geoBtn').hidden = !(window.isSecureContext && navigator.geolocation);  // browsers only share location over https or localhost
+async function saveLocation(lat, lon) {
+  const j = await post('/api/location', {lat, lon}, 'Location saved. Sunset times are ready');
+  if (j && j.ok) { $('locBox').hidden = true; loadSchedule(); }
+}
+function useMyLocation() {
+  $('geoBtn').disabled = true;
+  navigator.geolocation.getCurrentPosition(p => { $('geoBtn').disabled = false; saveLocation(p.coords.latitude, p.coords.longitude); },
+    () => { $('geoBtn').disabled = false; toast('Unable to get your location. Type it in below instead.', true); $('loc').focus(); }, {timeout: 15000});
+}
+$('locForm').onsubmit = e => {
+  e.preventDefault();
+  const [lat, lon] = $('loc').value.split(/[\s,]+/).filter(Boolean).map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) { $('loc').setAttribute('aria-invalid', 'true'); $('loc').focus(); return toast('Enter latitude and longitude as two numbers, like 51.50, -0.13', true); }
+  $('loc').removeAttribute('aria-invalid'); saveLocation(lat, lon);
+};
+// timer sheet: add one (to every light with All) or edit one light's timer
+function openTimer(k = light, t) {
+  draft = t ? {...t, k, days: [...t.days], theme: hasLook(t.theme) ? t.theme : ''} : {k, time: '18:00', action: 'on', days: [...EVERY], enabled: true, theme: ''};
+  $('timerTitle').textContent = (t ? 'Edit timer' : 'Add timer') + (k === 'all' ? ' · all lights' : ids().length > 1 ? ' · ' + nameOf(k) : '');
+  $('delTimer').hidden = !t;
+  const group = (name, items) => { const g = document.createElement('optgroup'); g.label = name; g.append(...items.map(n => new Option(n, n))); return items.length ? [g] : []; };
+  $('timerLook').replaceChildren(new Option('Last look', ''), ...group('My themes', lookNames.themes), ...group('Presets', lookNames.presets));
+  $('timerSheet').showModal(); drawSheet();
+}
+function drawSheet() {
+  const sun = draft.time.startsWith('sunset');
+  $('actSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === draft.action));
+  $('whenSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === (sun ? 'sunset' : 'time')));
+  $('whenSeg').querySelector('[data-v=sunset]').hidden = !sunsetToday && !sun; $('noSun').hidden = !!sunsetToday;
+  $('timeWheel').hidden = sun; $('offsetRow').hidden = !sun;
+  if (sun) { $('offset').value = offsetOf(draft.time); slid($('offset')); } else wheel.set(draft.time);
+  $('lookRow').hidden = draft.action !== 'on'; $('timerLook').value = draft.theme;
+  $('days').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', draft.days.includes(+b.dataset.d)));
+  const d = {...draft, id: draft.id || 'new'}, keys = draft.k === 'all' ? ids() : [draft.k];
+  const lines = keys.flatMap(k => clashes(((sched[k] || {}).timers || []).filter(t => t.id !== draft.id).concat(d)).filter(c => c.includes(d)).map(clashWords));
+  $('sheetClash').textContent = lines.join(' '); $('sheetClash').hidden = !lines.length;
+}
+async function saveTimers(k, body, msg) {
+  const j = await post('/api/schedule', {light: k, ...body}, msg);
+  if (j && j.ok) loadSchedule();
+  return j;
+}
+async function saveTimer() {
+  if (!draft.days.length) return toast('Pick at least one day.', true);
+  const t = {time: draft.time, action: draft.action, days: draft.days, enabled: draft.enabled, theme: draft.action === 'on' && draft.theme || null};
+  const j = await saveTimers(draft.k, draft.id ? {edit: [{id: draft.id, ...t}]} : {add: [t]}, draft.id ? 'Timer saved' : `Timer added for ${draft.k === 'all' ? 'all lights' : nameOf(draft.k)}`);
+  if (j && j.ok) $('timerSheet').close();
+}
+async function deleteTimer() {
+  const j = await saveTimers(draft.k, {delete: [draft.id]}, 'Timer deleted');
+  if (j && j.ok) $('timerSheet').close();
+}
+$('timerSheet').onclick = e => { if (e.target === $('timerSheet')) $('timerSheet').close(); };  // tap outside the card
+$('actSeg').onclick = e => { const v = e.target.dataset.v; if (v) { draft.action = v; drawSheet(); } };
+$('whenSeg').onclick = e => {
+  const v = e.target.dataset.v, sun = draft.time.startsWith('sunset'); if (!v || (v === 'sunset') === sun) return;
+  draft.time = v === 'sunset' ? 'sunset' : timeOf(draft.time) || '18:00'; drawSheet();
+};
+$('offset').addEventListener('input', () => { draft.time = sunsetSpec(+$('offset').value); drawSheet(); });
+$('timerLook').onchange = () => { draft.theme = $('timerLook').value; };
+// scroll-wheel time picker: hour, minute (5-min steps), AM/PM
+function makeWheel(box, onChange) {
+  const cols = [[...Array(12)].map((_, i) => String(i + 1)), [...Array(12)].map((_, i) => String(i * 5).padStart(2, '0')), ['AM', 'PM']];
+  const els = cols.map(items => {
+    const c = document.createElement('div'); c.className = 'col';
+    items.forEach((t, i) => { const d = document.createElement('div'); d.textContent = t; d.onclick = () => c.scrollTo({top: i * 44, behavior: 'smooth'}); c.appendChild(d); });
+    box.appendChild(c); return c;
+  });
+  let timer, quiet = false;
+  const idx = c => Math.max(0, Math.min(c.children.length - 1, Math.round(c.scrollTop / 44)));
+  const mark = () => els.forEach(c => [...c.children].forEach((d, i) => d.classList.toggle('pick', i === idx(c))));
+  const value = () => { let h = idx(els[0]) + 1, m = idx(els[1]) * 5; if (idx(els[2]) === 1 && h < 12) h += 12; if (idx(els[2]) === 0 && h === 12) h = 0; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; };
+  els.forEach(c => c.addEventListener('scroll', () => { mark(); clearTimeout(timer); timer = setTimeout(() => { if (!quiet) onChange(value()); }, 150); }));
+  return {
+    value,
+    set(hm) {
+      let [h, m] = hm.split(':').map(Number); m = Math.round(m / 5) * 5; if (m === 60) { m = 0; h = (h + 1) % 24; }
+      quiet = true; els[0].scrollTop = (((h % 12) || 12) - 1) * 44; els[1].scrollTop = (m / 5) * 44; els[2].scrollTop = (h >= 12 ? 1 : 0) * 44;
+      mark(); setTimeout(() => quiet = false, 200);
+    },
+  };
+}
+const wheel = makeWheel($('timeWheel'), v => { draft.time = v; drawSheet(); });
+DAYS.forEach(([d, letter, name]) => {
+  const b = document.createElement('button'); b.textContent = letter; b.dataset.d = d; b.setAttribute('aria-label', name);
+  b.onclick = () => { draft.days = draft.days.includes(d) ? draft.days.filter(x => x !== d) : [...draft.days, d].sort(); drawSheet(); };
+  $('days').appendChild(b);
+});
+[['Every day', EVERY], ['Weekdays', [0, 1, 2, 3, 4]], ['Weekends', [5, 6]]]
+  .forEach(([label, days]) => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = label; c.onclick = () => { draft.days = [...days]; drawSheet(); }; $('dayQuick').appendChild(c); });
+$('useSched').onclick = async () => {
+  const use = !(sched[lead()] || {}).use;
+  const j = await post('/api/schedule/use', {use}, use ? `This app's schedule is on for ${where()}` : `This app's schedule is off for ${where()}`);
+  if (j && j.ok) loadSchedule();
+};
+let fxKey = '';
+async function adaptEffects() {  // re-render effect previews in the current colors
+  const s = cur(); if (!s) return;
+  const key = JSON.stringify([s.colors, s.speed, s.amount]); if (key === fxKey) return; fxKey = key;
+  try {
+    const r = await fetch('/api/effect-previews', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({colors:s.colors, speed:s.speed, amount:s.amount})});
+    const clipsBy = await r.json();
+    document.querySelectorAll('#effects .tile').forEach(b => { const c = clips.find(c => c.cv === b.querySelector('canvas')); if (c && clipsBy[b.dataset.e]) c.frames = clipsBy[b.dataset.e]; });
+  } catch (e) { fxKey = ''; }
+}
+async function reconnect(b) {  // takes ~3 s while the server looks for the lights
+  const t = b.textContent; b.disabled = true; b.textContent = 'Reconnecting…';
+  await post('/api/reconnect', {}, `Reconnected ${where()}`);
+  b.disabled = false; b.textContent = t;
+}
+function alertUI(msg, fix) {  // only touch the text when it changes, so screen readers announce it once
+  if ($('alertText').textContent !== msg) $('alertText').textContent = msg;
+  $('alert').hidden = !msg; $('alertFix').hidden = !fix;
+}
+const swapColors = () => { const s = cur(); if (s) set({colors: [...s.colors].reverse()}, 'Colors swapped'); };
+let picked = 0;
+const SWATCHES = [['Gold',[255,200,80]],['Silver',[255,255,255]],['Candle',[255,150,60]],['Warm white',[255,190,110]],['Daylight',[225,235,255]],['Orange',[255,110,0]],['Amber',[255,150,0]],['Ember',[255,70,0]],['Ruby',[255,0,40]],['Deep red',[200,0,10]],['Rose',[255,60,120]],['Magenta',[255,0,140]],['Purple',[120,0,255]],['Royal blue',[40,40,255]],['Ice',[150,200,255]],['Teal',[0,200,200]],['Emerald',[0,200,80]],['Lime',[150,255,0]]];
+
+function colorsUI(cs) {
+  const box = $('colors'); box.innerHTML = '';
+  if (picked >= cs.length) picked = 0;
+  cs.forEach((c, i) => {
+    const inp = document.createElement('input'); inp.type = 'color'; inp.value = toHex(c); inp.setAttribute('aria-label', 'Color ' + (i+1));
+    inp.classList.toggle('picked', i === picked);
+    inp.onfocus = inp.onclick = () => { picked = i; box.querySelectorAll('input').forEach((x, j) => x.classList.toggle('picked', j === i)); };
+    inp.onchange = () => { cs[i] = hex(inp.value); set({colors: cs}, 'Color updated'); };
+    box.appendChild(inp);
+    if (cs.length > 1) { const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove color ' + (i+1)); x.onclick = () => { cs.splice(i,1); set({colors: cs}, 'Color removed'); }; box.appendChild(x); }
+  });
+  if (cs.length < 6) { const add = document.createElement('button'); add.className = 'btn'; add.textContent = '+ Color'; add.onclick = () => set({colors: [...cs, [255,255,255]]}, 'Color added'); box.appendChild(add); }
+}
+// sliders: the 150 ms poll must not move a thumb the user is holding. iOS Safari never focuses a range input
+// on touch, so the poll tracks our own pointer handling instead of document.activeElement, plus a short hold
+// after release so a poll that left before the new value was saved cannot snap the thumb back.
+// Pointers go to the slider's row (the input has pointer-events:none): iOS then lets a vertical swipe scroll
+// the page (touch-action:pan-y) and a drag can start anywhere on the track. Keyboard and VoiceOver use the input.
+let held = null, holdUntil = 0;
+const holding = r => r === held && (r.classList.contains('drag') || performance.now() < holdUntil);
+const SHOW = {bright: v => v + '%', speed: v => +(+v).toFixed(2) + '×', amount: v => Math.round(v * 100) + '%',
+  offset: v => offsetWords(+v) + (sunsetToday ? ' · today ' + fmt(timeOf(sunsetSpec(+v))) : '')};
+function slid(r) {
+  const t = SHOW[r.id](r.value);
+  r.style.setProperty('--p', (r.value - r.min) / (r.max - r.min)); $(r.id + 'Val').textContent = t; r.setAttribute('aria-valuetext', t);
+}
+document.querySelectorAll('input[type=range]').forEach(r => {
+  const row = r.parentElement; let start, timer;
+  const to = e => {
+    const b = r.getBoundingClientRect(), t = parseFloat(getComputedStyle(r).getPropertyValue('--t'));
+    r.value = +r.min + Math.min(1, Math.max(0, (e.clientX - b.left - t / 2) / (b.width - t))) * (r.max - r.min);
+    r.dispatchEvent(new Event('input'));
+  };
+  const end = keep => {  // keep = finger lifted; otherwise the page took the touch to scroll, so put the value back
+    clearTimeout(timer); if (start === undefined) return;
+    if (!keep) { r.value = start; slid(r); }
+    r.classList.remove('drag'); holdUntil = performance.now() + 1500;
+    if (keep && r.value !== start) r.dispatchEvent(new Event('change'));
+    start = undefined;
+  };
+  row.addEventListener('pointerdown', e => {
+    if (e.target !== row || r.disabled) return;
+    row.setPointerCapture(e.pointerId); start = r.value; held = r;
+    timer = setTimeout(() => r.classList.add('drag'), e.pointerType === 'touch' ? 100 : 0);  // no flash when a swipe turns into a scroll
+  });
+  row.addEventListener('pointermove', e => { if (start !== undefined) { r.classList.add('drag'); to(e); } });
+  row.addEventListener('pointerup', e => { if (start !== undefined) { to(e); end(true); } });
+  row.addEventListener('pointercancel', () => end(false));
+  r.addEventListener('input', () => { held = r; holdUntil = performance.now() + 1500; slid(r); });
+  slid(r);
+});
+const NO_SPEED = ['solid', 'pattern', 'paint', 'custom'];
+let shownColors = '';
+function syncControls() {
+  const s = cur(); if (!s) return;
+  $('power').classList.toggle('on', !!s.on); $('power').setAttribute('aria-pressed', !!s.on);
+  $('undo').disabled = !s.undo;
+  const down = (light === 'all' ? ids() : [light]).filter(k => state.lights[k] && state.lights[k].error).map(nameOf);
+  alertUI(down.length ? `${and(down)} stopped responding.` : s.paused ? 'Something else changed this light. Streaming is paused. Tap a look or Reconnect to resume.' : '', true);
+  document.querySelectorAll('#effects .tile').forEach(b => b.classList.toggle('on', b.dataset.e === s.effect));
+  document.querySelectorAll('#groups .tile, #mythemes .tile').forEach(b => { const p = JSON.parse(b.dataset.look); b.classList.toggle('on', Object.keys(p).every(k => same(p[k], s[k]))); });
+  $('amountLabel').textContent = AMOUNT[s.effect] || 'Amount';
+  $('speed').disabled = NO_SPEED.includes(s.effect); $('amount').disabled = !AMOUNT[s.effect];
+  $('swap').disabled = s.colors.length < 2;
+  [['bright', s.brightness], ['speed', s.speed], ['amount', s.amount]].forEach(([id, v]) => { const r = $(id); if (!holding(r)) { r.value = v; slid(r); } });
+  adaptEffects();
+  const key = JSON.stringify(s.colors);
+  if (key !== shownColors && document.activeElement.type !== 'color') { shownColors = key; colorsUI(s.colors.map(c => [...c])); }
+}
+function draw() {
+  $('paintbar').classList.toggle('on', sel.size > 0);
+  $('selCount').textContent = sel.size === 1 ? '1 bulb' : sel.size + ' bulbs';
+  const s = cur(), f = s ? s.frame : [];
+  $('strip').querySelectorAll('.bulb').forEach((b, i) => { const c = (s && s.on) ? (f[i] || [0,0,0]) : [40,40,40]; b.style.background = `rgb(${c})`; b.classList.toggle('sel', sel.has(i)); });
+}
+function selectEvery(k) { sel.clear(); for (let i = 0; i < N; i += k) sel.add(i); draw(); }
+function paint() {
+  if (!sel.size) return;
+  const bulbs = (cur().frame || []).map(c => [...c]); const c = hex($('pick').value);
+  const n = sel.size; sel.forEach(i => bulbs[i] = c); sel.clear(); draw();
+  set({effect:'paint', bulbs, on:true}, `Painted ${n} bulb${n > 1 ? 's' : ''}. Pick any effect to make it move again`);
+}
+
+for (let i = 0; i < N; i++) {
+  const b = document.createElement('button'); b.className = 'bulb'; b.setAttribute('aria-label', 'Bulb ' + (i+1));
+  b.onclick = e => { if (e.shiftKey && last !== null) { for (let j = Math.min(last,i); j <= Math.max(last,i); j++) sel.add(j); } else sel.has(i) ? sel.delete(i) : sel.add(i); last = i; draw(); };
+  $('strip').appendChild(b);
+}
+SWATCHES.forEach(([name, c]) => {
+  const b = document.createElement('button'); b.className = 'sw'; b.style.background = toHex(c); b.title = name; b.setAttribute('aria-label', name);
+  b.onclick = () => { const s = cur(); if (!s) return; const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: cs}, `${name} added`); };
+  $('swatches').appendChild(b);
+});
+CHIPS.forEach(t => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = t; c.onclick = () => ask(t); $('chips').appendChild(c); });
+function pickTab(k) { light = k; if (!document.querySelector('[data-page=themes]').hidden) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); shownColors = ''; syncControls(); draw(); }
+function showPage(p) {
+  document.querySelectorAll('[data-page]').forEach(x => x.hidden = x.dataset.page !== p);
+  document.querySelectorAll('#pages button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
+  try { localStorage.page = p; } catch (_) {}
+  if (p === 'schedule') loadSchedule();
+  if (p === 'themes') loadGoveeScenes();
+}
+$('pages').onclick = e => { const b = e.target.closest('button'); if (b) showPage(b.dataset.p); };
+try { if (['control','themes','schedule'].includes(localStorage.page)) showPage(localStorage.page); } catch (_) {}
+// light picker: one tab per saved light, plus "All" when there are 2 or more
+let tabsKey = '';
+function drawTabs() {
+  const tabs = ids().map(k => [k, nameOf(k)]); if (tabs.length > 1) tabs.push(['all', 'All']);
+  const key = JSON.stringify(tabs);
+  if (key !== tabsKey) { tabsKey = key; $('tabs').replaceChildren(...tabs.map(([k, n]) => { const b = document.createElement('button'); b.dataset.k = k; b.textContent = n; return b; })); }
+  $('tabs').hidden = setupOpen || tabs.length < 2;
+  $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === light));
+}
+function fixLight() {  // keep the picked light valid when lights are added, renamed or forgotten
+  const ok = k => !!state.lights[k] || (k === 'all' && ids().length > 1);
+  if (ok(light) || !ids().length) return;
+  let saved; try { saved = localStorage.light; } catch (_) {}
+  pickTab(ok(saved) ? saved : ids()[0]);
+}
+async function toggleAccount() {
+  $('account').hidden = !$('account').hidden;
+  if (!$('account').hidden) { await loadGovee(); $('account').scrollIntoView({block:'start'}); }
+}
+async function loadGovee() {
+  try {
+    govee = await (await fetch('/api/govee')).json();
+    $('disconnectGovee').hidden = !govee.connected; $('goveeGroup').hidden = !govee.connected;
+    $('connectGovee').textContent = govee.connected ? 'Refresh Govee' : 'Connect Govee account';
+    $('goveeStatus').textContent = govee.connected ? 'Connected. Leave the key blank to keep it. Refresh to read device names again.' : 'Not connected. The app works without a Govee API key.';
+    if (setupOpen) drawSetup();
+  } catch (_) { $('goveeStatus').textContent = OFFLINE; }
+}
+loadGovee();
+$('goveeForm').onsubmit = async e => {
+  e.preventDefault(); const key = $('goveeKey').value; $('goveeKey').value = '';
+  const button = $('connectGovee'); button.disabled = true;
+  $('goveeStatus').textContent = 'Reading Govee device names…';
+  const j = await post('/api/govee/refresh', key ? {key} : {});
+  button.disabled = false;
+  if (j && j.ok) { await loadGovee(); $('goveeStatus').textContent = `Read ${j.count === 1 ? '1 Govee device' : j.count + ' Govee devices'}. New lights found on Wi-Fi get their Govee names.`; loadGoveeScenes(); }
+  else $('goveeStatus').textContent = j?.error || OFFLINE;
+};
+async function disconnectAccount() {
+  const j = await post('/api/govee/disconnect', {}, 'Govee key removed from this computer');
+  if (j?.ok) { await loadGovee(); loadGoveeScenes(); }
+}
+async function loadGoveeScenes() {
+  const dev = light, reading = ++sceneRead; $('goveeScenes').replaceChildren();
+  if (!dev || dev === 'all') { $('goveeSceneNote').textContent = 'Pick one light to read its Govee scenes.'; return; }
+  $('goveeSceneNote').textContent = 'Reading Govee scenes…';
+  try {
+    const j = await (await fetch('/api/govee/scenes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({light:dev})})).json();
+    if (light !== dev || reading !== sceneRead) return;
+    $('goveeSceneNote').textContent = j.error || j.note || (j.scenes.length ? '' : 'Govee has no scenes for this light.');
+    $('goveeScenes').replaceChildren(...(j.scenes || []).map(scene => {
+      const item = document.createElement('li');
+      const kind = {lightScene:'Scene', diyScene:'DIY', snapshot:'Snapshot'}[scene.instance];
+      item.textContent = `${scene.name} · ${kind}`; return item;
+    }));
+  } catch (_) { $('goveeSceneNote').textContent = OFFLINE; }
+}
+function drawOutside(data) {
+  const keys = light === 'all' ? ids() : [light], warnings = [], events = [];
+  for (const k of keys) {
+    const d = data[k]; if (!d) continue;
+    for (const w of d.warnings) {
+      const p = document.createElement('p'); p.className = 'hint';
+      p.textContent = `Something else turned ${nameOf(k)} ${w.on ? 'on' : 'off'} near ${fmt(hhmm(w.minute))} on ${w.days} different days. It may be a timer in the Govee Home app. See the steps at the bottom of this page.`;
+      warnings.push(p);
+    }
+    for (const e of d.events.slice(-10)) {
+      const li = document.createElement('li');
+      li.textContent = `${new Intl.DateTimeFormat(undefined, {dateStyle:'medium', timeStyle:'short'}).format(new Date(e.at))}: ${nameOf(k)} turned ${e.on ? 'on' : 'off'} outside this app.`;
+      events.push(li);
+    }
+  }
+  $('outsideWarnings').replaceChildren(...warnings);
+  $('outsideEvents').replaceChildren(...events);
+}
+// setup: name the lights the LAN scan found; later, rename or forget them
+let setupOpen = false, setupKey = '', typed = {};
+function openSetup() { setupOpen = true; setupKey = ''; typed = {}; drawSetup(); showSetup(); }
+function closeSetup() { setupOpen = false; showSetup(); }
+function showSetup() {
+  $('setup').hidden = !setupOpen; $('app').hidden = $('footApp').hidden = setupOpen; $('setupDone').hidden = !ids().length; drawTabs();
+  if (setupOpen) scrollTo(0, 0);
+}
+function lightRow(id, label, name, extra, isNew) {
+  const r = document.createElement('div'); r.className = 'lrow';
+  const l = document.createElement('label'); l.className = 'small'; l.textContent = label; l.htmlFor = 'nm-' + id;
+  const line = document.createElement('div'); line.className = 'row';
+  const inp = document.createElement('input'); inp.className = 'field'; inp.id = 'nm-' + id; inp.value = name; inp.maxLength = 30;
+  inp.autocomplete = 'off'; inp.dataset.id = id; if (isNew) inp.dataset.isNew = 1; inp.setAttribute('aria-label', `Name for ${label}`);
+  inp.oninput = () => { typed[id] = inp.value; inp.removeAttribute('aria-invalid'); };
+  const f = document.createElement('button'); f.className = 'btn'; f.textContent = 'Flash'; f.title = 'Blink this light so you can see which one it is';
+  f.setAttribute('aria-label', `Flash ${label}: blink it so you can see which one it is`); f.onclick = () => flash(id, f);
+  line.append(inp, f, extra); r.append(l, line); return r;
+}
+async function flash(id, b) {
+  b.disabled = true; b.textContent = 'Flashing…';
+  await post('/api/light/flash', {id}, null);
+  b.disabled = false; b.textContent = 'Flash';
+}
+function drawSetup() {
+  if (!state) return;
+  const saved = ids(), found = state.found, key = JSON.stringify([saved, found, govee.devices]);
+  if (key === setupKey) return; setupKey = key;
+  const used = new Set(saved.map(nameOf)), next = () => { let n = 1; while (used.has(`Light ${n}`)) n++; used.add(`Light ${n}`); return `Light ${n}`; };
+  const rows = saved.map(k => {
+    const s = state.lights[k], label = `${s.sku} · ${s.short}`, b = document.createElement('button');
+    b.className = 'btn'; b.textContent = 'Forget'; b.setAttribute('aria-label', `Forget ${s.name}`); b.onclick = () => forget(k);
+    return lightRow(k, label, typed[k] ?? s.name, b);
+  }).concat(found.map(f => {
+    const label = `${f.sku} · ${f.short}`, c = document.createElement('label'); c.className = 'chk';
+    c.innerHTML = '<input type="checkbox" checked>Add'; c.firstChild.setAttribute('aria-label', `Add ${label}`);
+    return lightRow(f.id, label, typed[f.id] ?? (govee.devices.find(d => d.id.toUpperCase() === f.id.toUpperCase())?.name || next()), c, true);
+  }));
+  $('setupList').replaceChildren(...rows);
+  const first = !saved.length;
+  $('setupTitle').textContent = first ? 'Set up your lights' : 'Manage lights';
+  $('setupIntro').textContent = found.length ? (first ? 'Found on your Wi-Fi. Tap Flash to blink a light and see which one it is, then give it a name you’ll recognize.' : 'New lights found on your Wi-Fi. Tap Flash to see which one is which, then tick the ones to add.')
+    : first ? 'The app looks for Govee lights on your Wi-Fi.' : 'Rename a light, or forget one you no longer use. Flash blinks a light so you can see which one it is. To add a light, turn on LAN Control for it, then tap Scan again.';
+  $('setupEmpty').hidden = !first || found.length > 0;
+  $('setupSave').hidden = !rows.length;
+  $('scanBtn').classList.toggle('dark', !rows.length);
+}
+async function scan() {
+  const b = $('scanBtn'); b.disabled = true; b.textContent = 'Scanning…';
+  const j = await post('/api/scan', {}, null);
+  b.disabled = false; b.textContent = 'Scan again';
+  if (j && j.ok) { await refresh(); toast(state.found.length ? `Found ${state.found.length === 1 ? '1 new light' : state.found.length + ' new lights'}` : 'No new lights found', !state.found.length && !ids().length); }
+}
+async function saveSetup() {
+  const fields = [...$('setupList').querySelectorAll('input.field')];
+  const items = fields.filter(i => !i.dataset.isNew || i.parentElement.querySelector('input[type=checkbox]').checked).map(i => ({id: i.dataset.id, name: i.value.trim()}));
+  if (!items.length) return toast('Tick at least one light to add.', true);
+  const blank = fields.find(i => items.some(x => x.id === i.dataset.id && !x.name));
+  if (blank) { blank.setAttribute('aria-invalid', 'true'); blank.focus(); return toast('Give each light a name.', true); }
+  const j = await post('/api/lights', {lights: items}, ids().length ? 'Lights saved' : 'Lights saved. They should light up now');
+  if (j && j.ok) closeSetup();
+}
+async function forget(id) {
+  const n = nameOf(id);
+  if (!confirm(`Forget “${n}”?\n\nIts name, schedule and last look are removed. It stays on your Wi-Fi, so Scan again can add it back.`)) return;
+  const j = await post('/api/light/forget', {id}, `Forgot “${n}”`);
+  if (j && j.ok) delete typed[id];
+}
+$('tabs').onclick = e => { if (e.target.dataset.k) pickTab(e.target.dataset.k); };
+$('power').onclick = () => { const on = !(cur() && cur().on); set({on}, `${where()} turned ${on ? 'on' : 'off'}`); };
+$('bright').onchange = () => set({brightness: +$('bright').value}, `Brightness ${$('bright').value}%`);
+$('speed').onchange = () => set({speed: +$('speed').value}, 'Speed updated');
+$('amount').onchange = () => set({amount: +$('amount').value}, `${$('amountLabel').textContent} updated`);
+// chat: the server keeps the last few turns and forgets them after 5 quiet minutes
+let chatTimer;
+function bubble(who, text, isNew) {
+  const d = document.createElement('div'); d.className = `msg ${who}${isNew ? ' new' : ''}`; d.textContent = text;
+  $('log').appendChild(d); $('log').hidden = $('newChat').hidden = $('chatHint').hidden = false; return d;
+}
+function actions(b) {  // only on Claude's latest reply that changed the look
+  const a = document.createElement('div'); a.className = 'acts';
+  [['Save as theme', saveTheme], ['Undo', undo]].forEach(([t, fn]) => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = t; c.onclick = fn; a.appendChild(c); });
+  b.appendChild(a);
+}
+function drawChat(c) {
+  $('log').innerHTML = ''; $('log').hidden = $('newChat').hidden = $('chatHint').hidden = !c.turns.length;
+  c.turns.forEach(([me, say, changed], i) => { bubble('me', me); const b = bubble('ai', say); if (changed && i === c.turns.length - 1) actions(b); });
+  $('log').scrollTop = $('log').scrollHeight; expireIn(c.expires_in);
+}
+function expireIn(s) { clearTimeout(chatTimer); if (s) chatTimer = setTimeout(() => drawChat({turns: []}), s * 1000); }
+async function newChat() { const j = await post('/api/chat/clear', {}, 'New chat'); if (j && j.ok) drawChat({turns: []}); }
+async function ask(text) {
+  $('askBtn').disabled = true; $('askText').value = '';
+  $('log').querySelectorAll('.acts').forEach(x => x.remove());
+  bubble('me', text, true); const b = bubble('ai', 'Thinking…', true); b.classList.add('busy'); $('log').scrollTop = $('log').scrollHeight;
+  const j = await post('/api/ask', {text}, null);
+  $('askBtn').disabled = false; b.classList.remove('busy');
+  if (j && j.say) { b.textContent = j.say; if (j.changed) actions(b); expireIn(j.expires_in); loadThemes(); loadSchedule(); }
+  else { b.textContent = (j && j.error) || 'Could not reach Claude.'; b.classList.add('err'); $('askText').value = text; }
+  $('log').scrollTop = $('log').scrollHeight;
+}
+fetch('/api/chat').then(r => r.json()).then(drawChat).catch(() => {});
+$('askForm').onsubmit = e => { e.preventDefault(); const t = $('askText').value.trim(); if (t) ask(t); };
+
+function showQR() {
+  const url = (state && state.phone) || location.href;
+  $('qr').innerHTML = ''; $('qrLink').textContent = url; $('qrLink').href = url;
+  if (window.QRCode) new QRCode($('qr'), {text:url, width:220, height:220});
+  else $('qr').textContent = 'QR needs internet. Type the link instead:';
+  $('qrBox').classList.add('on'); $('qrBox').querySelector('.btn').focus();
+}
+function hideQR() { if (!$('qrBox').classList.contains('on')) return; $('qrBox').classList.remove('on'); document.querySelector('[onclick="showQR()"]').focus(); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQR(); });
+async function refresh() {
+  try { state = await (await fetch('/api/state')).json(); N = state.n; syncControls(); draw(); }
+  catch (e) { alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
+  $('askCard').hidden = !state.claude; $('themesAsk').hidden = !state.claude;
+  if (!ids().length && !setupOpen) openSetup();
+  if (setupOpen) { drawSetup(); $('setupDone').hidden = !ids().length; }
+  fixLight(); drawTabs(); syncControls(); draw();
+}
+async function poll() { await refresh(); setTimeout(poll, document.hidden ? 2000 : 150); }
+loadPreviews(); poll();
+</script>
+</body>
+</html>
