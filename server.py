@@ -262,10 +262,24 @@ def custom_frame(a, t, n, sp=1):
     return out
 
 
+def cycle(cs, turns, ease=lambda b: b):
+    """The colors in a loop: each one eases into the next. With 2 colors it is the old sine fade."""
+    x = turns % 1 * len(cs)
+    j = int(x) % len(cs)
+    return mix(cs[j], cs[(j + 1) % len(cs)], ease((1 - math.cos(math.pi * (x - int(x)))) / 2))
+
+
+def ramp(cs, f):
+    """f 0..1 along the colors in order, like a gradient."""
+    x = f * (len(cs) - 1)
+    j = min(int(x), len(cs) - 2) if len(cs) > 1 else 0
+    return mix(cs[j], cs[min(j + 1, len(cs) - 1)], x - j)
+
+
 def render(p, t, n=N):
     """One frame of n colors for settings p at time t (seconds)."""
     cs, sp, amt, e = p["colors"] or [SILVER], p["speed"], p["amount"], p["effect"]
-    c0, c1 = cs[0], cs[1 % len(cs)]
+    c0 = cs[0]
     if e == "custom":
         return custom_frame(p.get("animation"), t, n, sp)  # speed plays the animation faster or slower
     if e == "solid":
@@ -274,14 +288,12 @@ def render(p, t, n=N):
         return [cs[i % len(cs)] for i in range(n)]
     if e == "paint":
         return (p["bulbs"] or [c0] * n)[:n]
-    if e == "smoothwave":  # neighbours opposite, slow even sine fade, each a bit after the last
-        return [mix(c0, c1, (math.sin(t * sp * 3.77 - i * amt * 1.2 + (i % 2) * math.pi) + 1) / 2) for i in range(n)]
+    others = cs[1:] or cs  # sparkle and comet-head colors
+    if e == "smoothwave":  # neighbours one color apart, slow even fade through every color, each a bit after the last
+        return [cycle(cs, (t * sp * 3.77 - i * amt * 1.2 + (i % 2 + 0.5) * math.pi) / math.pi / len(cs)) for i in range(n)]
     if e == "wave":  # same, but holds each color then switches fast
-        out = []
-        for i in range(n):
-            v = (math.sin(t * sp * 9.42 - i * amt * 1.2 + (i % 2) * math.pi) + 1) / 2
-            out.append(mix(c0, c1, v * v * (3 - 2 * v)))
-        return out
+        return [cycle(cs, (t * sp * 9.42 - i * amt * 1.2 + (i % 2 + 0.5) * math.pi) / math.pi / len(cs), lambda v: v * v * (3 - 2 * v))
+                for i in range(n)]
     if e == "chase":
         shift, block = int(t * sp * 6), max(1, int(1 + amt * 6))
         return [cs[((i + shift) // block) % len(cs)] for i in range(n)]
@@ -300,27 +312,25 @@ def render(p, t, n=N):
             k = int(step + seeds[i % N])
             age = step + seeds[i % N] - k  # 0..1 inside this bulb's slot
             lit = hashf(i, k) < amt * 0.5
-            out.append(mix(c0, c1, (1 - age) ** 2) if lit else c0)
+            out.append(mix(c0, others[int(hashf(i, k + 7) * len(others)) % len(others)], (1 - age) ** 2) if lit else c0)
         return out
     if e == "comet":  # bright heads with fading tails run down the strip
         out, gap = [], max(8, int(n * (1.1 - amt)))
         head = t * sp * 20
         for i in range(n):
             d = (head - i) % gap
-            out.append(mix(c0, c1, max(0.0, 1 - d / (gap * 0.45))))
+            out.append(mix(c0, others[int((head - i) // gap) % len(others)], max(0.0, 1 - d / (gap * 0.45))))
         return out
     if e == "fire":  # warm flicker
         out, k = [], int(t * sp * 10)
         for i in range(n):
             f = hashf(i, k) * 0.6 + hashf(i // 3, k + 1) * 0.4
-            out.append(scale(mix(c0, c1, f), 1 - amt * 0.6 * (1 - f)))
+            out.append(scale(ramp(cs, f), 1 - amt * 0.6 * (1 - f)))
         return out
     if e == "aurora":  # slow color bands drifting through all colors
         out = []
         for i in range(n):
-            x = (math.sin(i / n * 6.283 * (1 + amt * 2) + t * sp * 0.8) + 1) / 2 * (len(cs) - 1)
-            j = min(int(x), len(cs) - 2) if len(cs) > 1 else 0
-            out.append(mix(cs[j], cs[min(j + 1, len(cs) - 1)], x - j))
+            out.append(ramp(cs, (math.sin(i / n * 6.283 * (1 + amt * 2) + t * sp * 0.8) + 1) / 2))
         return out
     # shimmer: neighbours alternate colors, each bulb drifts between them and twinkles on its own clock
     out = []

@@ -41,6 +41,14 @@ class FixChecks(unittest.TestCase):
         handler.do_POST()
         return result[0]
 
+    def test_two_color_effects_use_every_color(self):
+        cs = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 0]]
+        for e in ("wave", "smoothwave", "twinkle", "comet", "fire"):
+            p = dict(app.DEFAULT, effect=e, colors=cs, amount=1)
+            seen = {min(range(4), key=lambda j: sum((x - y) ** 2 for x, y in zip(c, cs[j])))
+                    for t in range(0, 300) for c in app.render(p, t / 7, 50)}
+            self.assertEqual(seen, {0, 1, 2, 3}, e)
+
     def test_state_sends_only_the_shown_lights_bulbs(self):
         def get(path):
             h = object.__new__(app.H)
