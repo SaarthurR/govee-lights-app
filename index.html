@@ -1108,6 +1108,7 @@ function syncControls() {
 function draw() {
   $('paintbar').classList.toggle('on', sel.size > 0);
   $('paintBtn').textContent = 'Paint ' + (sel.size === 1 ? '1 bulb' : sel.size + ' bulbs');
+  $('paintBtn').disabled = (light === 'all' ? ids() : [light]).some(k => !state?.lights[k]?.frame);
   const s = cur(), f = s?.frame || [];  // right after a light switch the reply may not have its bulbs yet
   $('strip').querySelectorAll('.bulb').forEach((b, i) => { b.style.background = s && s.on ? `rgb(${f[i] || [0,0,0]})` : ''; b.classList.toggle('sel', sel.has(i)); });
 }

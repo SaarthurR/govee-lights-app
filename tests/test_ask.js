@@ -22,6 +22,21 @@ context.light = 'forgotten'; context.fixLight(); assert.equal(context.light, 'a'
 delete context.state.lights.a; context.fixLight(); assert.equal(context.light, 'b');
 delete context.state.lights.b; context.fixLight(); assert.equal(context.light, '');
 
+// A light switch can expose controls before its selected-frame poll arrives.
+const paintButton = {disabled: false};
+const drawContext = {
+  light: 'a', state: {lights: {a: {frame: [[1, 2, 3]]}, b: {}}}, sel: new Set([0]),
+  ids() { return Object.keys(drawContext.state.lights); }, cur: () => null,
+  $: id => id === 'paintBtn' ? paintButton : {classList: {toggle() {}}, querySelectorAll: () => []},
+};
+vm.createContext(drawContext);
+vm.runInContext(extract('function draw()', 'function selectEvery('), drawContext);
+drawContext.draw(); assert.equal(paintButton.disabled, false);
+drawContext.light = 'b'; drawContext.draw(); assert.equal(paintButton.disabled, true);
+drawContext.light = 'all'; drawContext.draw(); assert.equal(paintButton.disabled, true);
+drawContext.state.lights.b.frame = [[4, 5, 6]];
+drawContext.draw(); assert.equal(paintButton.disabled, false);
+
 (async () => {
   // A setup POST must not resolve until the fresh selection is available.
   let release;
