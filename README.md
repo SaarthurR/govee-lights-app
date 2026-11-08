@@ -36,7 +36,7 @@ The installer downloads this repo into `govee-lights` in your home folder, adds 
 2. Open Govee Lights. It scans your Wi-Fi; click **Flash** to see which light is which, then name them.
 3. For your phone, click **Open on phone**, scan the code, then **Share → Add to Home Screen**. The phone must be on the same Wi-Fi.
 
-Add more lights later with **Add lights**; rename or remove them under **Manage lights**.
+Add, rename or remove lights later with **Manage lights** at the top of the page.
 
 ## Supported lights
 
@@ -66,7 +66,7 @@ Windows (keeps state; use `-Purge` to delete it too):
 
 **No lights found.** Check LAN Control is on, and that the light and computer share a Wi-Fi network (not a guest network). Some routers block devices from seeing each other; turn off "client isolation" or "AP isolation". Allow Python through your firewall. On a Mac, turn on Govee Lights in System Settings → Privacy & Security → Local Network. Then click **Scan again**.
 
-**Lights stuck or not changing.** Click **Reconnect** at the bottom of the page, for example after a power cut. Run only one copy of the app.
+**Lights stuck or not changing.** Click **Reconnect** in **Manage lights** or at the bottom of the page, for example after a power cut. Run only one copy of the app.
 
 **Lights turn on or off by themselves.** Timers made in Govee Home keep running, and other apps cannot read them. Check Timer and Automation in Govee Home, or turn off **Use this app's schedule** for that light.
 
