@@ -1554,6 +1554,13 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"ok": True})
             if self.path == "/api/location":
                 global location
+                if body.get("auto"):  # browser could not tell us: use this network's internet address instead
+                    try:
+                        with request.urlopen("https://ipwho.is/", timeout=8) as r:
+                            g = json.load(r)
+                        body = {"lat": g["latitude"], "lon": g["longitude"]}
+                    except Exception:
+                        return self.reply(502, {"error": "Could not find your location. Type it in instead."})
                 location = clean_location(body.get("lat"), body.get("lon"))
                 with lock:
                     save()

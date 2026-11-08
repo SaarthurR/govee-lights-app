@@ -848,16 +848,18 @@ async function loadSchedule() {
     drawTimers();
   } catch (e) {}
 }
-$('geoBtn').hidden = !(window.isSecureContext && navigator.geolocation);  // browsers only share location over https or localhost
-$('locBox').open = $('geoBtn').hidden;
+$('geoBtn').hidden = false;
 async function saveLocation(lat, lon) {
   const j = await post('/api/location', {lat, lon}, 'Location saved. Sunset times are ready');
   if (j && j.ok) { $('locBox').open = false; $('loc').value = ''; loadSchedule(); }
 }
-function useMyLocation() {
+async function useMyLocation() {  // the browser first; if it says no (or is not https), the server looks it up from the network
   $('geoBtn').disabled = true;
-  navigator.geolocation.getCurrentPosition(p => { $('geoBtn').disabled = false; saveLocation(p.coords.latitude, p.coords.longitude); },
-    () => { $('geoBtn').disabled = false; toast('Unable to get your location. Type it in instead.', true); $('locBox').open = true; $('loc').focus(); }, {timeout: 15000});
+  const p = await new Promise(ok => window.isSecureContext && navigator.geolocation
+    ? navigator.geolocation.getCurrentPosition(ok, () => ok(null), {timeout: 8000}) : ok(null));
+  const j = await post('/api/location', p ? {lat: p.coords.latitude, lon: p.coords.longitude} : {auto: true}, 'Location saved. Sunset times are ready');
+  $('geoBtn').disabled = false;
+  if (j && j.ok) { $('locBox').open = false; $('loc').value = ''; loadSchedule(); } else { $('locBox').open = true; $('loc').focus(); }
 }
 $('locForm').onsubmit = e => {
   e.preventDefault();
