@@ -233,19 +233,20 @@ def rgb_list(cs, limit):
     return cs
 
 
-def custom_frame(a, t, n):
+def custom_frame(a, t, n, sp=1):
     if a is None:
         return [SILVER] * n
     fs = a["frames"]
-    cycle = sum(f["duration"] for f in fs)
-    loops, at = divmod(t, cycle)
+    # every frame lasts a whole number of sent frames, so each step shows equally long (no 2-3-2 jerk)
+    ticks = [max(1, round(f["duration"] * FPS / sp)) for f in fs]
+    loops, at = divmod(round(t * FPS), sum(ticks))  # snap to the nearest sent frame, so a late send still lands on its tick
     j = 0
-    while j < len(fs) - 1 and at >= fs[j]["duration"]:
-        at -= fs[j]["duration"]
+    while j < len(fs) - 1 and at >= ticks[j]:
+        at -= ticks[j]
         j += 1
     f, nxt = fs[j], fs[(j + 1) % len(fs)]
     step = int(loops) * len(fs) + j
-    blend = max(0, (at / f["duration"] - 1 + f["fade"]) / f["fade"]) if f["fade"] else 0
+    blend = max(0, (at / ticks[j] - 1 + f["fade"]) / f["fade"]) if f["fade"] else 0
     out = []
     for i in range(n):
         x = min(i, n - 1 - i) if a["motion"] != "forward" else i
@@ -262,7 +263,7 @@ def render(p, t, n=N):
     cs, sp, amt, e = p["colors"] or [SILVER], p["speed"], p["amount"], p["effect"]
     c0, c1 = cs[0], cs[1 % len(cs)]
     if e == "custom":
-        return custom_frame(p.get("animation"), t * sp, n)  # speed plays the animation faster or slower
+        return custom_frame(p.get("animation"), t, n, sp)  # speed plays the animation faster or slower
     if e == "solid":
         return [c0] * n
     if e == "pattern":
@@ -453,8 +454,9 @@ def undo(key):
 
 
 def streamer():
+    t = time.time()
     while True:
-        t = time.time()
+        t = max(t + 1 / FPS, time.time() - 1)  # fixed 1/12 s ticks, so frames do not drift late; resync after a stall
         for key, s in list(st.items()):  # setup can add or forget a light mid-loop
             if not capability(key)["razer"] or not s["on"] or key in paused:
                 continue
@@ -463,7 +465,7 @@ def streamer():
                 razer(key, razer_frame(s["frame"]))
             except Exception as e:  # one bad frame or network blip must not kill the stream
                 s["error"] = f"stream: {e}"
-        time.sleep(1 / FPS)
+        time.sleep(max(0, t + 1 / FPS - time.time()))
 
 
 def clean_location(lat, lon):
@@ -1524,6 +1526,10 @@ if __name__ == "__main__":
     assert next_run([dict(on, enabled=False)], fri) is None
     for n, p in BUILTIN.items():
         assert len(render(dict(DEFAULT, **p), 5.0)) == N, n
+    walk = dict(DEFAULT, effect="custom", speed=0.85, animation={"frames": [{"pattern": [[255, 0, 0], GOLD, SILVER], "duration": 0.2, "fade": 0}], "shift": 1, "motion": "forward", "block": 1})
+    steps = [custom_frame(walk["animation"], k / FPS + (k % 3) * 0.01, 3, 0.85)[0] for k in range(30)]  # late sends jitter
+    runs = [len(list(g)) for _, g in __import__("itertools").groupby(steps)][1:-1]
+    assert len(set(runs)) == 1, runs  # every step of an animation lasts equally long
     chat["turns"] = [["hi", "hello", False]]  # chat["at"] is 0, so it counts as long expired
     assert chat_view()["turns"] == []
     # discovery parsing and setup, against a throwaway state file so the real one is never touched
