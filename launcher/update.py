@@ -93,12 +93,7 @@ def check(config, force=False, restart=None):
                 if restart:
                     restarting = True
                     restart()
-            except Exception as exc:
-                try:
-                    with (HERE / 'lights.log').open('a') as log:
-                        log.write(f'Update failed: {exc}\n')
-                except OSError:
-                    pass
+            except Exception:  # logged by the outer handler after rollback
                 for path in HERE.iterdir():
                     if path.name not in keep:
                         if path.is_dir(): shutil.rmtree(path)
