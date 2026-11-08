@@ -83,6 +83,7 @@
   :is(#timerSheet, #askSheet)[open] .card { animation:rise 250ms ease-out both; }
   :is(#timerSheet, #askSheet) h2 { font-size:17px; font-weight:600; text-transform:none; letter-spacing:-.01em; color:var(--ink); }
   .summary { font-size:17px; font-weight:600; letter-spacing:-.01em; line-height:1.35; }
+  #timers > .summary { background:var(--soft); border-radius:12px; padding:10px 14px; margin:10px 0 4px; font-size:15px; }
   .summary small { display:block; font-size:14px; font-weight:400; color:var(--mute); margin-top:4px; }
   body.basic [data-advanced] { display:none !important; }
   [hidden] { display:none !important; }
@@ -168,16 +169,25 @@
   .tile span { font-size:14px; font-weight:500; }
   .group-title { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--mute); margin:0 0 12px; }
   .group + .group { margin-top:18px; }
-  .wrap { position:relative; }
-  .wrap .tile { width:100%; height:100%; }
-  .del { position:absolute; top:-8px; right:-8px; width:30px; height:30px; border-radius:50%; border:0; background:rgba(255,255,255,.9); color:var(--mute); font-size:18px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.15); }
+  .wrap { display:flex; flex-direction:column; }
+  .wrap .tile { width:100%; flex:1; }
+  .tacts { display:none; gap:6px; margin-top:8px; }
+  #mythemes.editing .tacts { display:flex; animation:rise 200ms var(--ease-out) both; }
+  .tacts .linkbtn { flex:1; justify-content:center; }
+  .tacts .linkbtn + .linkbtn { color:var(--bad); }
   .field { font:inherit; font-size:16px; border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:#fff; min-height:44px; color:var(--ink); width:100%; }
   .swatches { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
-  .sw { width:34px; height:34px; border-radius:50%; border:1px solid rgba(0,0,0,.12); cursor:pointer; padding:0; }
-  .colors input.picked { outline:3px solid var(--ink); outline-offset:1px; }
-  .colors { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  /* 36px swatch, 44px hit area with the 8px gap */
+  .sw { position:relative; width:36px; height:36px; border-radius:50%; border:0; box-shadow:inset 0 0 0 1px rgba(0,0,0,.12); cursor:pointer; padding:0; }
+  .sw::after { content:""; position:absolute; inset:-4px; }
+  .sw[aria-pressed=true], .slot[aria-pressed=true] { box-shadow:inset 0 0 0 1px rgba(0,0,0,.12), 0 0 0 2px var(--card), 0 0 0 4px var(--ink); }
+  .sw.custom { background:conic-gradient(#f33, #fc3, #3c6, #3cf, #36f, #c3f, #f33); }
+  .sw.custom input { position:absolute; inset:0; width:100%; height:100%; opacity:0; border:0; padding:0; }
+  .sw.custom:has(input:focus-visible) { outline:2px solid var(--ink); outline-offset:2px; }
+  .colors { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .slot { width:44px; height:44px; border-radius:12px; border:0; padding:0; cursor:pointer; box-shadow:inset 0 0 0 1px rgba(0,0,0,.12); }
+  .slot.add { display:grid; place-items:center; background:var(--soft); color:var(--ink); box-shadow:inset 0 0 0 1px var(--line); }
   input[type=color] { width:44px; height:44px; border:1px solid var(--line); border-radius:12px; padding:3px; background:#fff; cursor:pointer; }
-  .x { border:0; background:none; color:var(--mute); cursor:pointer; font-size:20px; width:28px; min-height:44px; margin:0 2px 0 -6px; padding:0; }
   label.small { font-size:13px; color:var(--mute); display:block; }
   .hint { font-size:13px; color:var(--mute); margin-top:10px; text-wrap:pretty; }
   #mythemes:empty + .hint { margin-top:0; }
@@ -224,11 +234,12 @@
   #qr { display:flex; justify-content:center; margin:8px 0 12px; }
   #qrLink { font-size:15px; word-break:break-all; color:var(--ink); }
   /* feel: press, hover, fades */
-  button, .btn, .chip, .tile, .sw, .bulb, input[type=color] { transition-property:scale, background-color, border-color, box-shadow, color; transition-duration:150ms; transition-timing-function:ease-out; }
+  button, .btn, .chip, .tile, .sw, .slot, .bulb, input[type=color] { transition-property:scale, background-color, border-color, box-shadow, color; transition-duration:150ms; transition-timing-function:ease-out; }
   button:not(:disabled):active, input[type=color]:active { scale:.96; }
   .bulb { transition:background-color 150ms linear, scale 150ms ease-out; }
   .btn.dark:disabled { opacity:1; background:var(--soft); color:var(--mute); border-color:var(--soft); }
-  button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
+  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, a:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
+  [tabindex="-1"]:focus { outline:none; }  /* sheet titles take the first focus so no control opens ringed */
   @keyframes pulse { 50% { opacity:.4; } }
   @keyframes rise { from { opacity:0; translate:0 8px; } }
   @keyframes fade { from { opacity:0; } }
@@ -239,15 +250,14 @@
     .btn:not(:disabled):hover, .chip:hover, .days button[aria-pressed=false]:hover { border-color:#cfccc5; }
     .btn.dark:not(:disabled):hover, .send:not(:disabled):hover { background:#3a3a3c; }
     .tile:not(.on):hover { border-color:#cfccc5; box-shadow:0 2px 8px rgba(0,0,0,.06); }
-    .tabs button:not(.on):hover, .pages button:not(.on):hover, .seg button:not(.on):hover, .x:hover { color:var(--ink); }
+    .tabs button:not(.on):hover, .pages button:not(.on):hover, .seg button:not(.on):hover { color:var(--ink); }
     .sw:hover, .bulb:hover { scale:1.08; }
   }
   @media (pointer:coarse) {
     .tabs button { min-height:44px; }
-    .del::after { content:""; position:absolute; inset:-7px; }
   }
   @media (prefers-reduced-motion:reduce) {
-    [data-page], #qrBox .card, :is(#timerSheet, #askSheet) .card, .msg.new, .paintbar.on, #askCard.open { animation-name:fade !important; }
+    [data-page], #qrBox .card, :is(#timerSheet, #askSheet) .card, .msg.new, .paintbar.on, #askCard.open, #mythemes.editing .tacts { animation-name:fade !important; }
     .wstep, .scanning { animation:none !important; }
     .msg.busy::after { animation:pulse 1.6s ease-in-out infinite; }
     * { scale:none !important; }
@@ -304,7 +314,8 @@
     /* one swipeable row instead of 2-3 wrapped rows; bleeds to the card edge and fades there */
     #chips, .swatches { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin-left:-16px; margin-right:-16px; padding:0 16px; overscroll-behavior-x:contain;
       -webkit-mask:linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 24px), transparent); mask:linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 24px), transparent); }
-    #chips { padding-block:5px; margin-top:5px; margin-bottom:-5px; }  /* room for the chips' hit areas inside the scroller */
+    #chips, .swatches { padding-block:5px; }  /* room for hit areas and the picked ring inside the scroller */
+    #chips { margin-top:5px; margin-bottom:-5px; }
     #chips::-webkit-scrollbar, .swatches::-webkit-scrollbar { display:none; }
     .chip, .sw { flex:none; }
     .tile { padding:8px; }
@@ -337,7 +348,7 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <div id="qrBox" role="dialog" aria-modal="true" aria-label="Open on phone" onclick="if(event.target===this)hideQR()">
     <div class="card">
-      <h2>Scan with your phone camera</h2>
+      <h2 tabindex="-1">Scan with your phone camera</h2>
       <div id="qr"></div>
       <a id="qrLink"></a>
       <div class="hint" id="qrIP"></div>
@@ -478,10 +489,10 @@
   <section data-page="control">
   <div class="card" id="colorCard">
     <h2>Colors</h2>
-    <div class="colors" id="colors"></div>
-    <p class="hint" id="colorsNote" style="margin-top:6px" hidden></p>
-    <div class="swatches" id="swatches" aria-label="Quick colors"></div>
-    <div class="hint" style="margin-top:6px">Tap a color to pick it, then tap a swatch to swap it in.</div>
+    <div class="colors" id="colors" role="group" aria-label="Your colors"></div>
+    <div class="row" style="margin-top:10px;flex-wrap:nowrap;min-height:32px"><p class="hint grow" id="colorHint" style="margin:0" aria-live="polite"></p><button class="linkbtn" id="removeColor">Remove</button></div>
+    <p class="hint" id="colorsNote" style="margin-top:4px" hidden></p>
+    <div class="swatches" id="swatches" role="group" aria-label="Quick colors"><label class="sw custom" title="Any color"><input type="color" id="custom" aria-label="Any color"></label></div>
     <div class="row" style="margin-top:14px">
       <button class="btn" onclick="saveTheme()">Save as theme</button>
       <button class="btn" id="swap" onclick="swapColors()">Swap colors</button>
@@ -500,7 +511,7 @@
 
   <section data-page="themes" hidden>
   <div class="card">
-    <h2>My themes</h2>
+    <div class="head"><h2>My themes</h2><button class="linkbtn" id="themesEdit" hidden>Edit</button></div>
     <div class="grid" id="mythemes"></div>
     <div class="hint" id="themesHint">No themes yet. Set up a look on Control, then tap “Save as theme”.<span id="themesAsk" hidden> Or ask Claude: “save this as movie night”.</span></div>
   </div>
@@ -516,8 +527,8 @@
   <section data-page="schedule" hidden>
   <div class="card">
     <h2>Schedule <span class="sub" id="schedFor"></span></h2>
-    <label class="row" for="useSched" style="justify-content:space-between;min-height:44px;cursor:pointer">Use this app's schedule<button class="power" id="useSched" aria-describedby="schedOffNote"></button></label>
-    <p class="hint" id="schedOffNote" style="margin-top:0" hidden>Off. Use the timers in the Govee Home app instead. This app won't turn your lights on or off on its own.</p>
+    <label class="row" for="useSched" style="justify-content:space-between;flex-wrap:nowrap;min-height:44px;cursor:pointer;font-weight:500">Use this app's schedule<button class="power" id="useSched" aria-describedby="schedOffNote"></button></label>
+    <p class="hint" id="schedOffNote" style="margin-top:4px" hidden>Off. Use the timers in the Govee Home app instead. This app won't turn your lights on or off on its own.</p>
     <fieldset id="schedBody">
     <div id="outsideWarnings" role="status"></div>
     <div id="timers"></div>
@@ -550,7 +561,7 @@
     <div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn" id="sheetNo">Cancel</button><button class="btn dark" id="sheetOk">OK</button></div>
   </div></dialog>
   <dialog id="timerSheet" aria-labelledby="timerTitle"><div class="card">
-    <h2 id="timerTitle">Add timer</h2>
+    <h2 id="timerTitle" tabindex="-1" autofocus>Add timer</h2>
     <div class="seg" id="actSeg"><button data-v="on">Turn on</button><button data-v="off">Turn off</button></div>
     <div class="seg" id="whenSeg" style="margin-top:12px"><button data-v="time">At a time</button><button data-v="sunset">At sunset</button></div>
     <p class="hint" id="noSun">To use sunset, add your location under the timers.</p>
@@ -651,11 +662,18 @@ async function loadThemes() {
   list.forEach(([name, s, frames]) => {
     const w = document.createElement('div'); w.className = 'wrap'; $('mythemes').appendChild(w);
     const b = tile(w, name, frames, () => set({...s, on:true}, `${name} on ${where()}`)); b.dataset.look = JSON.stringify(s);
-    const x = document.createElement('button'); x.className = 'del'; x.textContent = '×'; x.setAttribute('aria-label', 'Delete ' + name);
-    x.onclick = async () => { if (await sheet(`Delete “${name}”?`, undefined, 'Delete')) { await post('/api/theme/delete', {name}, `Deleted “${name}”`); loadThemes(); } };
-    w.appendChild(x);
+    const acts = document.createElement('div'); acts.className = 'tacts'; w.appendChild(acts);
+    [['Rename', async () => {
+      const n = await sheet('Rename theme', name, 'Rename'); if (!n || n === name) return;
+      const j = await post('/api/theme/rename', {name, new: n}, `Renamed to “${n}”`); if (j && j.ok) { loadThemes(); loadSchedule(); }
+    }], ['Delete', async () => { if (await sheet(`Delete “${name}”?`, undefined, 'Delete')) { await post('/api/theme/delete', {name}, `Deleted “${name}”`); loadThemes(); } }]]
+      .forEach(([t, fn]) => { const x = document.createElement('button'); x.className = 'linkbtn'; x.textContent = t; x.setAttribute('aria-label', `${t} ${name}`); x.onclick = fn; acts.appendChild(x); });
   });
+  if (!list.length) editThemes(false);
+  $('themesEdit').hidden = !list.length;
 }
+const editThemes = on => { $('mythemes').classList.toggle('editing', on); $('themesEdit').textContent = on ? 'Done' : 'Edit'; };
+$('themesEdit').onclick = () => editThemes(!$('mythemes').classList.contains('editing'));
 // asks in the page: the Mac app window ignores prompt() and confirm(), so those did nothing there
 function sheet(title, value, ok = 'OK') {  // value undefined = yes/no question; resolves true / the typed text / null
   const d = $('askSheet'), inp = $('sheetInput');
@@ -889,19 +907,36 @@ const SWATCHES = [['Gold',[255,200,80]],['Silver',[255,255,255]],['Candle',[255,
 // Claude's animations carry their own colors: show those, and recolor every frame when one changes
 const animColors = a => [...new Map(a.frames.flatMap(f => f.pattern).map(c => [c.join(), c])).values()].slice(0, 12);
 const recolor = (a, from, to) => ({...a, frames: a.frames.map(f => ({...f, pattern: f.pattern.map(c => same(c, from) ? to : c)}))});
+// one color is picked at a time; a swatch or "any color" replaces it
+let shown = {cs: [], anim: null};
 function colorsUI(cs, anim) {
-  const box = $('colors'); box.innerHTML = '';
-  if (picked >= cs.length) picked = 0;
-  cs.forEach((c, i) => {
-    const inp = document.createElement('input'); inp.type = 'color'; inp.value = toHex(c); inp.setAttribute('aria-label', 'Color ' + (i+1));
-    inp.classList.toggle('picked', i === picked);
-    inp.onfocus = inp.onclick = () => { picked = i; box.querySelectorAll('input').forEach((x, j) => x.classList.toggle('picked', j === i)); };
-    inp.onchange = () => { if (anim) return set({animation: recolor(anim, c, hex(inp.value))}, 'Color updated'); cs[i] = hex(inp.value); set({colors: cs}, 'Color updated'); };
-    box.appendChild(inp);
-    if (cs.length > 1 && !anim) { const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove color ' + (i+1)); x.onclick = () => { cs.splice(i,1); set({colors: cs}, 'Color removed'); }; box.appendChild(x); }
+  shown = {cs, anim};
+  const slots = cs.map((c, i) => {
+    const b = document.createElement('button'); b.className = 'slot'; b.style.background = toHex(c); b.setAttribute('aria-label', 'Color ' + (i + 1));
+    b.onclick = () => pickColor(i); return b;
   });
-  if (!anim && advanced() && cs.length < 6) { const add = document.createElement('button'); add.className = 'btn'; add.textContent = '+ Color'; add.onclick = () => set({colors: [...cs, [255,255,255]]}, 'Color added'); box.appendChild(add); }
+  if (!anim && advanced() && cs.length < 6) {
+    const add = document.createElement('button'); add.className = 'slot add'; add.setAttribute('aria-label', 'Add a color');
+    add.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+    add.onclick = () => { picked = cs.length; set({colors: [...cs, [255,255,255]]}, 'Color added'); }; slots.push(add);
+  }
+  $('colors').replaceChildren(...slots); pickColor(Math.min(picked, cs.length - 1));
 }
+function pickColor(i) {
+  const {cs, anim} = shown; picked = i;
+  $('colors').querySelectorAll('.slot:not(.add)').forEach((b, j) => b.setAttribute('aria-pressed', j === i));
+  $('swatches').querySelectorAll('[data-c]').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === toHex(cs[i])));
+  $('custom').value = toHex(cs[i]);
+  $('colorHint').textContent = cs.length > 1 ? `Color ${i + 1}: tap a swatch to change it.` : 'Tap a swatch to change the color.';
+  $('removeColor').hidden = !!anim || cs.length < 2;
+}
+function setColor(c, msg) {  // replace the picked color, in an animation's frames too
+  const s = cur(); if (!s) return;
+  if (s.effect === 'custom' && s.animation) { const old = animColors(s.animation); return set({animation: recolor(s.animation, old[Math.min(picked, old.length - 1)], c)}, msg); }
+  const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: advanced() ? cs : [c]}, msg);
+}
+$('custom').onchange = () => setColor(hex($('custom').value), 'Color updated');
+$('removeColor').onclick = () => { const cs = shown.cs.map(c => [...c]); cs.splice(picked, 1); set({colors: cs}, 'Color removed'); };
 // sliders: the 150 ms poll must not move a thumb the user is holding. iOS Safari never focuses a range input
 // on touch, so the poll tracks our own pointer handling instead of document.activeElement, plus a short hold
 // after release so a poll that left before the new value was saved cannot snap the thumb back.
@@ -1000,8 +1035,8 @@ function buildStrip() {
   }
 }
 SWATCHES.forEach(([name, c]) => {
-  const b = document.createElement('button'); b.className = 'sw'; b.style.background = toHex(c); b.title = name; b.setAttribute('aria-label', name);
-  b.onclick = () => { const s = cur(); if (!s) return; if (s.effect === 'custom' && s.animation) { const old = animColors(s.animation); return set({animation: recolor(s.animation, old[Math.min(picked, old.length - 1)], c)}, `${name} added`); } const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: advanced() ? cs : [c]}, `${name} added`); };
+  const b = document.createElement('button'); b.className = 'sw'; b.style.background = b.dataset.c = toHex(c); b.title = name; b.setAttribute('aria-label', name);
+  b.onclick = () => setColor(c, `Changed to ${name}`);
   $('swatches').appendChild(b);
 });
 function drawChips(p) {  // a chip ending in … fills the box for you to finish; the others ask right away
@@ -1272,7 +1307,7 @@ function showQR() {
   $('qr').innerHTML = ''; $('qrLink').textContent = url; $('qrLink').href = url;
   if (window.QRCode) new QRCode($('qr'), {text:url, width:220, height:220});
   else $('qr').textContent = 'QR needs internet. Type the link instead:';
-  $('qrBox').classList.add('on'); $('qrBox').querySelector('.btn').focus();
+  $('qrBox').classList.add('on'); $('qrBox').querySelector('h2').focus();
 }
 function hideQR() { if (!$('qrBox').classList.contains('on')) return; $('qrBox').classList.remove('on'); document.querySelector('[onclick="showQR()"]').focus(); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) { hideQR(); askOpen(false); } });

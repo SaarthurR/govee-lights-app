@@ -1246,8 +1246,9 @@ def apply_answer(answer, keys):
             changed = True
         elif kind == "save_theme":
             save_theme(*value)
-        elif kind == "rename_theme":
-            themes[value[1]] = themes.pop(value[0])
+        elif kind == "rename_theme":  # keeps its place in My themes
+            renamed = [(value[1] if k == value[0] else k, v) for k, v in themes.items()]
+            themes.clear(); themes.update(renamed)
         elif kind == "delete_theme":
             del themes[value]
         elif kind == "rename_light":

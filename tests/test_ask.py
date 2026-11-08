@@ -58,7 +58,9 @@ class AskChecks(unittest.TestCase):
         self.assertEqual(frame, frame[::-1])
         self.assertNotEqual(frame, app.render(app.st[a], 2.3))
         self.assertEqual(len(app.clip(app.themes["Ocean night"])), 36)
-        self.ask([dict(type="rename_theme", name="Ocean night", new="Ocean"), dict(type="delete_theme", name="Ocean")])
+        self.ask([dict(type="save_theme", target=a, name="Later"), dict(type="rename_theme", name="Ocean night", new="Ocean")])
+        self.assertEqual(list(app.themes), ["Ocean", "Later"])  # a renamed theme keeps its place
+        self.ask([dict(type="delete_theme", name="Ocean"), dict(type="delete_theme", name="Later")])
         self.assertFalse(app.themes)
         self.ask([dict(type="paint", target=a, indices=[0, 83], color=[1, 2, 3]), dict(type="save_theme", target=a, name="Paint")])
         self.assertEqual(app.st[a]["bulbs"][83], [1, 2, 3])
