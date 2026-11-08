@@ -289,11 +289,10 @@ def render(p, t, n=N):
     if e == "paint":
         return (p["bulbs"] or [c0] * n)[:n]
     others = cs[1:] or cs  # sparkle and comet-head colors
-    if e == "smoothwave":  # neighbours one color apart, slow even fade through every color, each a bit after the last
-        return [cycle(cs, (t * sp * 3.77 - i * amt * 1.2 + (i % 2 + 0.5) * math.pi) / math.pi / len(cs)) for i in range(n)]
+    if e == "smoothwave":  # the colors in order flow down the strip, each fading into the next
+        return [cycle(cs, (t * sp * 1.2 - i * amt * 0.38) / len(cs)) for i in range(n)]
     if e == "wave":  # same, but holds each color then switches fast
-        return [cycle(cs, (t * sp * 9.42 - i * amt * 1.2 + (i % 2 + 0.5) * math.pi) / math.pi / len(cs), lambda v: v * v * (3 - 2 * v))
-                for i in range(n)]
+        return [cycle(cs, (t * sp * 3 - i * amt * 0.38) / len(cs), lambda v: v * v * (3 - 2 * v)) for i in range(n)]
     if e == "chase":
         shift, block = int(t * sp * 6), max(1, int(1 + amt * 6))
         return [cs[((i + shift) // block) % len(cs)] for i in range(n)]
@@ -332,12 +331,11 @@ def render(p, t, n=N):
         for i in range(n):
             out.append(ramp(cs, (math.sin(i / n * 6.283 * (1 + amt * 2) + t * sp * 0.8) + 1) / 2))
         return out
-    # shimmer: neighbours alternate colors, each bulb drifts between them and twinkles on its own clock
+    # shimmer: the colors in order drift slowly down the strip while each bulb twinkles on its own clock
     out = []
     for i in range(n):
         ph = seeds[i % N] + t * sp * rates[i % N] * 2.2
-        a, b = cs[i % len(cs)], cs[(i + 1) % len(cs)]
-        c = mix(a, b, ((math.sin(ph * 0.35) + 1) / 2) ** 3)
+        c = cycle(cs, (t * sp * 0.4 - i * 0.25) / len(cs))
         tw = ((math.sin(ph) + 1) / 2) ** 2
         c = scale(c, 1 - amt * 0.7 * (1 - tw))
         if tw > 0.93:
