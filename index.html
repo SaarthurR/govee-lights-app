@@ -197,6 +197,9 @@
   .lrow + .lrow { margin-top:14px; }
   .lrow .row { flex-wrap:nowrap; margin-top:4px; }
   .lrow .field { flex:1; min-width:0; }
+  .lhead { display:flex; align-items:center; gap:8px; }
+  .lhead label { flex:1; }
+  .lrow .lhead .field.bulbs { flex:0 0 5em; min-height:36px; padding:4px 8px; }
   .chk { display:flex; align-items:center; gap:8px; min-height:44px; padding:0 4px; font-size:15px; cursor:pointer; white-space:nowrap; }
   .chk input { width:20px; height:20px; margin:0; accent-color:var(--ink); }
   .steps { margin:12px 0 0; padding-left:22px; display:flex; flex-direction:column; gap:8px; text-wrap:pretty; }
@@ -1233,7 +1236,7 @@ async function useAsk(use) {
   const j = await post('/api/ask/use', {use}, wsteps ? null : `Ask Claude turned ${use ? 'on' : 'off'}`);
   if (j && j.ok && wsteps) step(1);
 }
-function lightRow(id, label, name, extra, isNew) {
+function lightRow(id, label, name, extra, isNew, bulbs) {
   const r = document.createElement('div'); r.className = 'lrow';
   const l = document.createElement('label'); l.className = 'small'; l.textContent = label; l.htmlFor = 'nm-' + id;
   const line = document.createElement('div'); line.className = 'row';
@@ -1242,7 +1245,14 @@ function lightRow(id, label, name, extra, isNew) {
   inp.oninput = () => { typed[id] = inp.value; inp.removeAttribute('aria-invalid'); };
   const f = document.createElement('button'); f.className = 'btn'; f.textContent = 'Flash'; f.title = 'Blink this light so you can see which one it is';
   f.setAttribute('aria-label', `Flash ${label}: blink it so you can see which one it is`); f.onclick = () => flash(id, f);
-  line.append(inp, f, extra); r.append(l, line); return r;
+  line.append(inp, f, extra); r.append(l, line);
+  if (bulbs) {  // strings can be unplugged or added, so the user sets the real count
+    const n = document.createElement('input'); n.type = 'number'; n.className = 'field bulbs'; n.min = 1; n.max = 255; n.step = 1; n.value = bulbs;
+    n.inputMode = 'numeric'; n.title = 'How many bulbs this light has'; n.setAttribute('aria-label', `Number of bulbs on ${label}`); n.dataset.bulbs = id;
+    const u = document.createElement('span'); u.className = 'small'; u.textContent = 'bulbs';
+    const head = document.createElement('div'); head.className = 'lhead'; head.append(l, n, u); r.prepend(head);
+  }
+  return r;
 }
 async function flash(id, b) {
   b.disabled = true; b.textContent = 'Flashing…';
@@ -1257,7 +1267,7 @@ function drawSetup() {
   const rows = saved.map(k => {
     const s = state.lights[k], label = `${s.sku} · ${s.short}`, b = document.createElement('button');
     b.className = 'btn'; b.textContent = 'Forget'; b.setAttribute('aria-label', `Forget ${s.name}`); b.onclick = () => forget(k);
-    return lightRow(k, label, typed[k] ?? s.name, wsteps ? '' : b);
+    return lightRow(k, label, typed[k] ?? s.name, wsteps ? '' : b, false, s.capabilities.razer && s.capabilities.bulbs);
   }).concat(found.map(f => {
     const label = `${f.sku} · ${f.short}`, c = document.createElement('label'); c.className = 'chk';
     c.innerHTML = '<input type="checkbox" checked>Add'; c.firstChild.setAttribute('aria-label', `Add ${label}`);
@@ -1284,8 +1294,13 @@ async function scan() {
   drawSetup();
 }
 async function saveSetup() {
-  const fields = [...$('setupList').querySelectorAll('input.field')];
-  const items = fields.filter(i => !i.dataset.isNew || i.parentElement.querySelector('input[type=checkbox]')?.checked !== false).map(i => ({id: i.dataset.id, name: i.value.trim()}));
+  const fields = [...$('setupList').querySelectorAll('input.field:not(.bulbs)')];
+  const items = fields.filter(i => !i.dataset.isNew || i.parentElement.querySelector('input[type=checkbox]')?.checked !== false).map(i => {
+    const b = $('setupList').querySelector(`input[data-bulbs="${i.dataset.id}"]`);
+    return b ? {id: i.dataset.id, name: i.value.trim(), bulbs: Number(b.value)} : {id: i.dataset.id, name: i.value.trim()};
+  });
+  const bad = $('setupList').querySelector('input[data-bulbs]:invalid');
+  if (bad) { bad.focus(); return toast('Bulbs must be a whole number from 1 to 255.', true); }
   if (!items.length) return toast('Tick at least one light to add.', true);
   const blank = fields.find(i => items.some(x => x.id === i.dataset.id && !x.name));
   if (blank) { blank.setAttribute('aria-invalid', 'true'); blank.focus(); return toast('Give each light a name.', true); }
