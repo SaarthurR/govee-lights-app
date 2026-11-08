@@ -1314,10 +1314,11 @@ function showQR() {
 function hideQR() { if (!$('qrBox').classList.contains('on')) return; $('qrBox').classList.remove('on'); document.querySelector('[onclick="showQR()"]').focus(); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) { hideQR(); askOpen(false); } });
 let disconnected = false, serverVersion = '';
-async function refresh() {
-  try { state = await (await fetch('/api/state')).json(); syncControls(); draw(); }
+async function refresh(quick) {  // quick = only the bulbs; the rest of the page syncs every 4th poll
+  try { state = await (await fetch('/api/state')).json(); draw(); }
   catch (e) { disconnected = true; alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
   if (disconnected) { alertUI('', false); disconnected = false; }
+  if (quick) return;
   if (serverVersion && state.update?.version !== serverVersion) { location.reload(); return; }
   serverVersion = state.update?.version || '';
   $('feedback').href = feedbackURL();
@@ -1332,7 +1333,9 @@ async function refresh() {
   if (setupOpen) { drawSetup(); $('setupDone').hidden = wsteps?.[wat] === 'network' || !!wsteps && ids().length > 0; }
   fixLight(); drawTabs(); syncControls(); draw();
 }
-async function poll() { await refresh(); setTimeout(poll, document.hidden ? 2000 : 150); }
+// the lights change 12 times a second; polling about twice per change shows every step, so the live strip does not stutter
+let polls = 0;
+async function poll() { await refresh(++polls % 4 > 0); setTimeout(poll, document.hidden ? 2000 : 40); }
 loadPreviews(); poll();
 </script>
 </body>
