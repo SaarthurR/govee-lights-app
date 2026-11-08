@@ -66,6 +66,8 @@
   .wheel .col::-webkit-scrollbar { display:none; }
   .wheel .col div { height:44px; line-height:44px; text-align:center; scroll-snap-align:center; font-size:21px; color:var(--mute); cursor:pointer; font-variant-numeric:tabular-nums; user-select:none; }
   .wheel .col div.pick { color:var(--ink); font-weight:600; }
+  .wheel .col:focus-visible { outline:none; }
+  .wheel .col:focus-visible div.pick { text-decoration:underline 2px; text-underline-offset:6px; }  /* the column's mask would hide a ring */
   .days { display:flex; gap:4px; }
   .days button { flex:1; min-width:0; min-height:44px; border:1px solid var(--line); background:#fff; border-radius:12px; font:inherit; font-size:15px; color:var(--mute); cursor:pointer; }
   .days button[aria-pressed=true] { background:var(--ink); border-color:var(--ink); color:#fff; font-weight:600; }
@@ -491,7 +493,7 @@
   <div class="card" id="colorCard">
     <h2>Colors</h2>
     <div class="colors" id="colors" role="group" aria-label="Your colors"></div>
-    <div class="row" style="margin-top:10px;flex-wrap:nowrap;min-height:32px"><p class="hint grow" id="colorHint" style="margin:0" aria-live="polite"></p><button class="linkbtn" id="removeColor">Remove</button></div>
+    <div class="row" style="margin-top:10px;flex-wrap:nowrap;min-height:32px"><p class="hint grow" id="colorHint" style="margin:0" aria-live="polite"></p><button class="linkbtn" id="removeColor"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>Remove</button></div>
     <p class="hint" id="colorsNote" style="margin-top:4px" hidden></p>
     <div class="swatches" id="swatches" role="group" aria-label="Quick colors"><label class="sw custom" title="Any color"><input type="color" id="custom" aria-label="Any color"></label></div>
     <div class="row" style="margin-top:14px">
@@ -566,7 +568,7 @@
     <div class="seg" id="actSeg"><button data-v="on">Turn on</button><button data-v="off">Turn off</button></div>
     <div class="seg" id="whenSeg" style="margin-top:12px"><button data-v="time">At a time</button><button data-v="sunset">At sunset</button></div>
     <p class="hint" id="noSun">To use sunset, add your location under the timers.</p>
-    <div class="wheel" id="timeWheel" style="margin-top:12px" aria-label="Time"></div>
+    <div class="wheel" id="timeWheel" style="margin-top:12px" role="group" aria-label="Time"></div>
     <div class="ctl" id="offsetRow" style="margin-top:8px"><label class="small" for="offset"><b id="offsetVal" aria-hidden="true"></b></label><input type="range" id="offset" min="-120" max="120" step="5" value="0"></div>
     <div id="lookRow" style="margin-top:12px"><label class="small" for="timerLook" style="margin-bottom:6px">Look</label><select class="field" id="timerLook"></select></div>
     <div class="group-title" style="margin:16px 0 8px" id="tDaysTitle">Repeat</div>
@@ -645,6 +647,7 @@ function animate() {
 async function loadPreviews() {
   try {
     const p = await (await fetch('/api/previews')).json();
+    $('groups').replaceChildren(); $('effects').replaceChildren();  // a retry after a failed loadThemes builds them again
     lookNames.presets = p.groups.flatMap(([, items]) => items.map(([name]) => name));
     p.groups.forEach(([title, items]) => {
       const g = document.createElement('div'); g.className = 'group';
@@ -655,8 +658,10 @@ async function loadPreviews() {
     await loadThemes(); animate(); syncControls(); drawTimers();
   } catch (e) { setTimeout(loadPreviews, 2000); }
 }
+let themesKey = '';
 async function loadThemes() {
   const list = await (await fetch('/api/themes')).json();
+  const key = JSON.stringify(list.map(([name, s]) => [name, s])); if (key === themesKey) return; themesKey = key;  // unchanged: keep the tiles and focus
   lookNames.themes = list.map(([name]) => name);
   $('mythemes').innerHTML = '';
   $('themesHint').style.display = list.length ? 'none' : '';
@@ -772,9 +777,12 @@ function drawTimers() {
   const full = keys.some(k => (sched[k] || {timers: []}).timers.length >= 10);
   $('addTimer').disabled = full; $('timerCap').hidden = !full;
 }
+let schedKey = '';
 async function loadSchedule() {
   try {
-    const d = await (await fetch('/api/schedule')).json(); drawOutside(d.outside || {}); sched = d; sunsetToday = d.sunset;
+    const d = await (await fetch('/api/schedule')).json();
+    const key = JSON.stringify([light, d]); if (key === schedKey) return; schedKey = key;  // unchanged: keep the rows and focus
+    drawOutside(d.outside || {}); sched = d; sunsetToday = d.sunset;
     $('sunRow').hidden = !d.sunset; $('sunText').textContent = d.sunset ? `Sunset today is ${fmt(d.sunset)}.` : '';
     if (!d.sunset) $('locBox').hidden = false;
     if (d.location && !$('loc').value) $('loc').value = d.location.join(', ');
@@ -847,24 +855,30 @@ $('whenSeg').onclick = e => {
 };
 $('offset').addEventListener('input', () => { draft.time = sunsetSpec(+$('offset').value); drawSheet(); });
 $('timerLook').onchange = () => { draft.theme = $('timerLook').value; };
-// scroll-wheel time picker: hour, minute (5-min steps), AM/PM
+// scroll-wheel time picker: hour, minute, AM/PM; each column is a spin button for the keyboard and screen readers
 function makeWheel(box, onChange) {
-  const cols = [[...Array(12)].map((_, i) => String(i + 1)), [...Array(12)].map((_, i) => String(i * 5).padStart(2, '0')), ['AM', 'PM']];
-  const els = cols.map(items => {
-    const c = document.createElement('div'); c.className = 'col';
-    items.forEach((t, i) => { const d = document.createElement('div'); d.textContent = t; d.onclick = () => c.scrollTo({top: i * 44, behavior: 'smooth'}); c.appendChild(d); });
+  const cols = [['Hour', [...Array(12)].map((_, i) => String(i + 1))], ['Minute', [...Array(60)].map((_, i) => String(i).padStart(2, '0'))], ['AM or PM', ['AM', 'PM']]];
+  const els = cols.map(([name, items]) => {
+    const c = document.createElement('div'); c.className = 'col'; c.tabIndex = 0; c.setAttribute('role', 'spinbutton'); c.setAttribute('aria-label', name);
+    const go = (i, behavior) => c.scrollTo({top: Math.max(0, Math.min(items.length - 1, i)) * 44, behavior});
+    items.forEach((t, i) => { const d = document.createElement('div'); d.textContent = t; d.onclick = () => go(i, 'smooth'); c.appendChild(d); });
+    c.onkeydown = e => {
+      const step = {ArrowUp: 1, ArrowDown: -1, PageUp: 5, PageDown: -5}[e.key];
+      if (step) go(idx(c) + step); else if (e.key === 'Home') go(0); else if (e.key === 'End') go(items.length - 1); else return;
+      e.preventDefault();
+    };
     box.appendChild(c); return c;
   });
   let timer, quiet = false;
   const idx = c => Math.max(0, Math.min(c.children.length - 1, Math.round(c.scrollTop / 44)));
-  const mark = () => els.forEach(c => [...c.children].forEach((d, i) => d.classList.toggle('pick', i === idx(c))));
-  const value = () => { let h = idx(els[0]) + 1, m = idx(els[1]) * 5; if (idx(els[2]) === 1 && h < 12) h += 12; if (idx(els[2]) === 0 && h === 12) h = 0; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; };
+  const mark = () => els.forEach(c => { const at = idx(c); [...c.children].forEach((d, i) => d.classList.toggle('pick', i === at)); c.setAttribute('aria-valuetext', c.children[at].textContent); });
+  const value = () => { let h = idx(els[0]) + 1, m = idx(els[1]); if (idx(els[2]) === 1 && h < 12) h += 12; if (idx(els[2]) === 0 && h === 12) h = 0; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; };
   els.forEach(c => c.addEventListener('scroll', () => { mark(); clearTimeout(timer); timer = setTimeout(() => { if (!quiet) onChange(value()); }, 150); }));
   return {
     value,
     set(hm) {
-      let [h, m] = hm.split(':').map(Number); m = Math.round(m / 5) * 5; if (m === 60) { m = 0; h = (h + 1) % 24; }
-      quiet = true; els[0].scrollTop = (((h % 12) || 12) - 1) * 44; els[1].scrollTop = (m / 5) * 44; els[2].scrollTop = (h >= 12 ? 1 : 0) * 44;
+      const [h, m] = hm.split(':').map(Number);
+      quiet = true; els[0].scrollTop = (((h % 12) || 12) - 1) * 44; els[1].scrollTop = m * 44; els[2].scrollTop = (h >= 12 ? 1 : 0) * 44;
       mark(); setTimeout(() => quiet = false, 200);
     },
   };
@@ -907,7 +921,8 @@ const SWATCHES = [['Gold',[255,200,80]],['Silver',[255,255,255]],['Candle',[255,
 
 // Claude's animations carry their own colors: show those, and recolor every frame when one changes
 const animColors = a => [...new Map(a.frames.flatMap(f => f.pattern).map(c => [c.join(), c])).values()].slice(0, 12);
-const recolor = (a, from, to) => ({...a, frames: a.frames.map(f => ({...f, pattern: f.pattern.map(c => same(c, from) ? to : c)}))});
+const patterns = (a, fn) => ({...a, frames: a.frames.map(f => ({...f, pattern: fn(f.pattern)}))});
+const recolor = (a, from, to) => patterns(a, p => p.map(c => same(c, from) ? to : c));
 // one color is picked at a time; a swatch or "any color" replaces it
 let shown = {cs: [], anim: null};
 function colorsUI(cs, anim) {
@@ -916,10 +931,15 @@ function colorsUI(cs, anim) {
     const b = document.createElement('button'); b.className = 'slot'; b.style.background = toHex(c); b.setAttribute('aria-label', 'Color ' + (i + 1));
     b.onclick = () => pickColor(i); return b;
   });
-  if (!anim && advanced() && cs.length < 6) {
+  if (anim ? cs.length < 12 && anim.frames.some(f => f.pattern.length < maxBulbs()) : advanced() && cs.length < 6) {
     const add = document.createElement('button'); add.className = 'slot add'; add.setAttribute('aria-label', 'Add a color');
     add.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
-    add.onclick = () => { picked = cs.length; set({colors: [...cs, [255,255,255]]}, 'Color added'); }; slots.push(add);
+    add.onclick = () => {  // white goes on the end of every frame of an animation
+      const s = cur(), a = liveAnim(); if (!s) return; picked = cs.length;
+      if (a) set({animation: patterns(a, p => p.length < maxBulbs() ? [...p, [255,255,255]] : p)}, 'Color added');
+      else if (s.colors.length < 6) set({colors: [...s.colors, [255,255,255]]}, 'Color added');
+    };
+    slots.push(add);
   }
   $('colors').replaceChildren(...slots); pickColor(Math.min(picked, cs.length - 1));
 }
@@ -930,15 +950,31 @@ function pickColor(i) {
   $('custom').value = toHex(cs[i]);
   const hint = cs.length > 1 ? `Color ${i + 1}: tap a swatch to change it.` : 'Tap a swatch to change the color.';
   if ($('colorHint').textContent !== hint) $('colorHint').textContent = hint;
-  $('removeColor').hidden = !!anim || cs.length < 2;
+  $('removeColor').hidden = cs.length < 2; $('removeColor').setAttribute('aria-label', 'Remove color ' + (i + 1));
 }
+// edits read the latest look when they are made, so a picker left open never sends an older palette back
+const CHANGED = 'That color just changed on another screen. Pick it again.';
+const liveAnim = () => { const s = cur(); return s && s.effect === 'custom' && s.animation; };
+const hasColor = (a, c) => !!c && a.frames.some(f => f.pattern.some(x => same(x, c)));
+const maxBulbs = () => Math.min(...(light === 'all' ? ids() : [lead()]).map(k => state.lights[k].capabilities.bulbs));
 function setColor(c, msg) {  // replace the picked color, in an animation's frames too
-  const s = cur(); if (!s) return;
-  if (s.effect === 'custom' && s.animation) { const old = animColors(s.animation); return set({animation: recolor(s.animation, old[Math.min(picked, old.length - 1)], c)}, msg); }
-  const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: advanced() ? cs : [c]}, msg);
+  const s = cur(), a = liveAnim(), from = shown.cs[picked]; if (!s) return;
+  if (a) return hasColor(a, from) ? set({animation: recolor(a, from, c)}, msg) : toast(CHANGED, true);
+  if (!advanced()) return set({colors: [c]}, msg);
+  if (picked >= s.colors.length) return toast(CHANGED, true);
+  const cs = s.colors.map(x => [...x]); cs[picked] = c; set({colors: cs}, msg);
 }
 $('custom').onchange = () => setColor(hex($('custom').value), 'Color updated');
-$('removeColor').onclick = () => { const cs = shown.cs.map(c => [...c]); cs.splice(picked, 1); set({colors: cs}, 'Color removed'); };
+$('removeColor').onclick = () => {
+  const s = cur(), a = liveAnim(), from = shown.cs[picked]; if (!s) return;
+  if (a) {  // out of every frame; a frame left empty takes one of the remaining colors
+    const rest = animColors(a).filter(c => !same(c, from));
+    if (!hasColor(a, from) || !rest.length) return toast(CHANGED, true);
+    return set({animation: patterns(a, p => { const q = p.filter(c => !same(c, from)); return q.length ? q : [rest[0]]; })}, 'Color removed');
+  }
+  if (s.colors.length < 2 || !same(s.colors[picked], from)) return toast(CHANGED, true);
+  set({colors: s.colors.filter((_, i) => i !== picked)}, 'Color removed');
+};
 // sliders: the 150 ms poll must not move a thumb the user is holding. iOS Safari never focuses a range input
 // on touch, so the poll tracks our own pointer handling instead of document.activeElement, plus a short hold
 // after release so a poll that left before the new value was saved cannot snap the thumb back.
@@ -961,7 +997,7 @@ document.querySelectorAll('input[type=range]').forEach(r => {
   };
   const end = keep => {  // keep = finger lifted; otherwise the page took the touch to scroll, so put the value back
     clearTimeout(timer); if (start === undefined) return;
-    if (!keep) { r.value = start; slid(r); }
+    if (!keep) { r.value = start; r.dispatchEvent(new Event('input')); }  // input listeners (the timer draft) take the old value back too
     r.classList.remove('drag'); holdUntil = performance.now() + 1500;
     if (keep && r.value !== start) r.dispatchEvent(new Event('change'));
     start = undefined;
@@ -1021,11 +1057,14 @@ function draw() {
   $('strip').querySelectorAll('.bulb').forEach((b, i) => { b.style.background = s && s.on ? `rgb(${f[i] || [0,0,0]})` : ''; b.classList.toggle('sel', sel.has(i)); });
 }
 function selectEvery(k) { sel.clear(); for (let i = 0; i < N; i += k) sel.add(i); draw(); }
-function paint() {
+async function paint() {
   if (!sel.size) return;
-  const bulbs = (cur().frame || []).map(c => [...c]); const c = hex($('pick').value);
-  const n = sel.size; sel.forEach(i => bulbs[i] = c); sel.clear(); draw();
-  set({effect:'paint', bulbs, on:true}, `Painted ${n} bulb${n > 1 ? 's' : ''}. Pick any effect to make it move again`);
+  const c = hex($('pick').value), picks = [...sel], n = picks.length; sel.clear(); draw();
+  const keys = light === 'all' ? ids() : [light];
+  for (const k of keys) {  // each light keeps its own unselected bulbs
+    const bulbs = (state.lights[k].frame || []).map(x => [...x]); picks.forEach(i => { if (i < bulbs.length) bulbs[i] = c; });
+    await post('/api/set', {light: k, settings: {effect:'paint', bulbs, on:true}}, k === keys.at(-1) ? `Painted ${n} bulb${n > 1 ? 's' : ''}. Pick any effect to make it move again` : null);
+  }
 }
 
 function buildStrip() {
@@ -1275,7 +1314,10 @@ function actions(b) {  // only on Claude's latest reply that changed the look
   [['Save as theme', saveTheme], ['Undo', undo]].forEach(([t, fn]) => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = t; c.onclick = fn; a.appendChild(c); });
   b.appendChild(a);
 }
-function drawChat(c) {
+let chatKey = '', asking = false;
+function drawChat(c) {  // never while an ask is out: its bubbles would be wiped and the answer land nowhere
+  if (asking) return;
+  const key = JSON.stringify(c.turns); if (key === chatKey) return expireIn(c.expires_in); chatKey = key;
   $('log').innerHTML = ''; $('log').hidden = $('newChat').hidden = $('chatHint').hidden = !c.turns.length;
   c.turns.forEach(([me, say, changed], i) => { bubble('me', me); const b = bubble('ai', say); if (changed && i === c.turns.length - 1) actions(b); });
   $('log').scrollTop = $('log').scrollHeight; expireIn(c.expires_in);
@@ -1283,12 +1325,12 @@ function drawChat(c) {
 function expireIn(s) { clearTimeout(chatTimer); if (s) chatTimer = setTimeout(() => drawChat({turns: []}), s * 1000); }
 async function newChat() { const j = await post('/api/chat/clear', {}, 'New chat'); if (j && j.ok) drawChat({turns: []}); }
 async function ask(text) {
-  $('askBtn').disabled = true; $('askText').value = '';
+  $('askBtn').disabled = true; $('askText').value = ''; asking = true;
   await refresh(); fixLight();
   $('log').querySelectorAll('.acts').forEach(x => x.remove());
   bubble('me', text, true); const b = bubble('ai', 'Thinking…', true); b.classList.add('busy'); $('log').scrollTop = $('log').scrollHeight;
   const j = await post('/api/ask', {text}, null);
-  $('askBtn').disabled = false; b.classList.remove('busy');
+  asking = false; $('askBtn').disabled = false; b.classList.remove('busy');
   if (j && j.say) { b.textContent = j.say; if (j.changed) actions(b); expireIn(j.expires_in); loadThemes(); loadSchedule(); }
   else { b.textContent = (j && j.error) || 'Could not reach Claude.'; b.classList.add('err'); $('askText').value = text; }
   $('log').scrollTop = $('log').scrollHeight;
@@ -1334,8 +1376,17 @@ async function refresh(quick) {  // quick = only the bulbs; the rest of the page
   fixLight(); drawTabs(); syncControls(); draw();
 }
 // the lights change 12 times a second; polling about twice per change shows every step, so the live strip does not stutter
-let polls = 0;
-async function poll() { await refresh(++polls % 4 > 0); setTimeout(poll, document.hidden ? 2000 : 40); }
+let polls = 0, listsAt = 0;
+async function poll() {
+  await refresh(++polls % 4 > 0);
+  if (!document.hidden && performance.now() - listsAt > 5000) { listsAt = performance.now(); refreshLists(); }
+  setTimeout(poll, document.hidden ? 2000 : 40);
+}
+function refreshLists() {  // other phones and Claude change these too; each redraws only when its data changed
+  if (page === 'schedule') loadSchedule();
+  if (page !== 'control') loadThemes().catch(() => {});  // the timer sheet lists themes too
+  if (!$('askCard').hidden) fetch('/api/chat').then(r => r.json()).then(drawChat).catch(() => {});
+}
 loadPreviews(); poll();
 </script>
 </body>
