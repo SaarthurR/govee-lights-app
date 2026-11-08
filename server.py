@@ -20,7 +20,7 @@ BASIC = MODELS["H6008"]
 FPS = 12
 HISTORY = 30
 EFFECTS = ("wave", "smoothwave", "shimmer", "twinkle", "comet", "fire", "aurora",
-           "solid", "pattern", "chase", "breathe", "rainbow", "paint", "custom")
+           "solid", "pattern", "chase", "march", "breathe", "rainbow", "paint", "custom")
 KEYS = ("effect", "colors", "speed", "amount", "brightness", "on", "bulbs", "animation")
 DEFAULT = {"effect": "wave", "colors": [[255, 200, 80], [255, 255, 255]], "speed": 1.0, "amount": 0.3,
            "brightness": 100, "on": True, "bulbs": None, "animation": None}
@@ -37,6 +37,7 @@ PRESETS = [
     ("Candy cane", {"effect": "chase", "colors": [[255, 20, 20], SILVER], "speed": 0.6, "amount": 0.3}),
     ("Ocean", {"effect": "smoothwave", "colors": [[20, 80, 255], [0, 200, 200]], "speed": 0.6, "amount": 0.5}),
     ("Rainbow", {"effect": "rainbow", "colors": [SILVER], "speed": 1, "amount": 0.5}),
+    ("Rainbow march", {"effect": "march", "colors": [[255, 0, 0], [255, 120, 0], [255, 220, 0], [0, 200, 0], [0, 80, 255], [75, 0, 200], [160, 0, 255]], "speed": 1, "amount": 0.5}),
 ]
 BUILTIN = dict(PRESETS)
 MAX_BODY, MAX_THEMES, MAX_NAME = 65536, 60, 30
@@ -261,7 +262,7 @@ def render(p, t, n=N):
     cs, sp, amt, e = p["colors"] or [SILVER], p["speed"], p["amount"], p["effect"]
     c0, c1 = cs[0], cs[1 % len(cs)]
     if e == "custom":
-        return custom_frame(p.get("animation"), t, n)
+        return custom_frame(p.get("animation"), t * sp, n)  # speed plays the animation faster or slower
     if e == "solid":
         return [c0] * n
     if e == "pattern":
@@ -279,6 +280,9 @@ def render(p, t, n=N):
     if e == "chase":
         shift, block = int(t * sp * 6), max(1, int(1 + amt * 6))
         return [cs[((i + shift) // block) % len(cs)] for i in range(n)]
+    if e == "march":  # the colors in order, one per bulb, all stepping one bulb along at a time
+        step = int(t * sp * 4)
+        return [cs[(i - step) % len(cs)] for i in range(n)]
     if e == "breathe":
         k = 0.15 + 0.85 * (math.sin(t * sp * 1.5) + 1) / 2
         return [scale(cs[i % len(cs)], k) for i in range(n)]
@@ -1010,15 +1014,15 @@ def ask_keys(selected):
 
 ASK = """Govee controller. JSON only: {"say":"short reply or one clarification question","actions":[]}, max 16 actions. Unclear: ask, no actions. Only requested changes; no code. No lights: questions, themes and location still work; explain when a light is needed. target=light id|selected|all (default selected); never guess a missing selection.
 Actions:
-{"type":"set","settings":{}} optional fields: on bool, brightness 1-100, effect, colors 1-6 RGB integer triples 0-255, speed .05-5, amount .05-1, bulbs exactly light's slot count RGBs or null, animation or null. Effects: wave, smoothwave (slow), shimmer, twinkle, comet, fire, aurora, solid, pattern, chase, breathe, rainbow, paint, custom. razer=false supports only power, brightness, one solid color and timers.
-custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}],"shift":integer,"motion":"forward|center|outward","block":integer}. 1-16 frames, 1..bulbs colors/pattern repeated, duration 1/12..60s, fade at end toward next shifted frame; shift -bulbs..bulbs each frame; block 1..bulbs per color. Loop; speed ignored. Prefer short custom patterns for new effects. Slow police: red/blue pattern, block half bulbs, shift half bulbs, duration 2. center moves inward.
+{"type":"set","settings":{}} optional fields: on bool, brightness 1-100, effect, colors 1-6 RGB integer triples 0-255, speed .05-5, amount .05-1, bulbs exactly light's slot count RGBs or null, animation or null. Effects: wave, smoothwave (slow), shimmer, twinkle, comet, fire, aurora, solid, pattern, chase, march (colors in order, one per bulb, stepping along), breathe, rainbow, paint, custom. razer=false supports only power, brightness, one solid color and timers.
+custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}],"shift":integer,"motion":"forward|center|outward","block":integer}. 1-16 frames, 1..bulbs colors/pattern repeated, duration 1/12..60s, fade at end toward next shifted frame; shift -bulbs..bulbs each frame; block 1..bulbs per color. Loop; speed multiplies playback, so send speed 1 with a new custom animation. Prefer short custom patterns for new effects. Slow police: red/blue pattern, block half bulbs, shift half bulbs, duration 2. center moves inward.
 {"type":"paint","indices":[0,1],"color":[r,g,b]} zero based, only listed bulbs.
 {"type":"save_theme","name":"name","settings":{}} creates from DEFAULT + settings without a light; omit settings to save target's resulting look (one look required). {"type":"apply_theme","name":"theme or preset"} keeps brightness unless asked. {"type":"rename_theme","name":"old","new":"new"}, {"type":"delete_theme","name":"name"}.
 {"type":"schedule","schedule":{"add":[{"time":"HH:MM|sunset|sunset-20","action":"on|off","days":[5,6],"theme":"name","enabled":true}],"edit":[{"id":"id","enabled":false}],"delete":["id"],"use":true}} optional keys; edit=id+changes. Mon=0..Sun=6, default daily; sunset offset +/-120min, requires location to run. theme/preset on timers only; omit=last look. Max 10 timers/light. use=master switch, keep unless asked. Never changes lights now. Midnight off ends the preceding on-night; use same days as on.
 {"type":"location","lat":number,"lon":number} only user-provided coordinates; ask if unknown. {"type":"rename_light","name":"name"}, {"type":"undo"}, {"type":"flash"}, {"type":"reconnect"}, {"type":"forget_light"}, {"type":"scan"}, {"type":"save_lights","lights":[{"id":"discovered id","name":"name"}]}. Setup/network/account actions must be alone; scan then let user choose discovered lights.
 {"type":"govee_refresh"}, {"type":"govee_disconnect"}, {"type":"govee_scenes"}, {"type":"ask_use","use":false}, {"type":"clear_chat"}. Enter account keys in page; browser location/QR/preview/help are page controls. Keep brightness unless asked. Names max 30 light/40 theme. Chat expires in 5 min."""
-CHAT_TTL, CHAT_TURNS = 300, 6
-chat = {"at": 0.0, "turns": []}  # short memory for follow-ups; forgotten after 5 quiet minutes so each ask stays cheap
+CHAT_TTL, CHAT_TURNS = 1200, 6
+chat = {"at": 0.0, "turns": []}  # short memory for follow-ups; forgotten after 20 quiet minutes so each ask stays cheap
 
 
 def chat_view():
