@@ -57,7 +57,8 @@ class FixChecks(unittest.TestCase):
         data = json.loads(app.SAVE.read_text())
         data["_lights"]["bad"] = []
         data["_schedule"]["a"] = []
-        data["_schedule"]["b"]["timers"] = [self.timer("18:00")]
+        data["_schedule"]["b"]["timers"] = [self.timer("18:00"), dict(self.timer("19:00"), time="sunset")]
+        data["_location"] = ["bad", 0]
         data["a"] = dict(look=dict(colors=[None]), history=[None])
         data["b"]["look"]["colors"] = [[1, 2, 3]]
         data["_themes"] = dict(Bad=[], Good=dict(effect="solid", colors=[[4, 5, 6]]))
@@ -69,8 +70,9 @@ class FixChecks(unittest.TestCase):
         self.assertEqual(json.loads(app.SAVE.with_name("state.json.bad").read_text()), data)
         self.assertEqual(app.st["a"]["colors"], app.DEFAULT["colors"])
         self.assertEqual(app.st["a"]["history"], [])
+        self.assertFalse(app.st["a"]["on"])
         self.assertEqual(app.st["b"]["colors"], [[1, 2, 3]])
-        self.assertEqual(len(app.schedule["b"]["timers"]), 1)
+        self.assertEqual(len(app.schedule["b"]["timers"]), 2)
         self.assertEqual(set(app.themes), {"Good"})
         self.assertEqual(len(app.outside["b"]), 1)
         for state in app.st.values():
@@ -176,6 +178,14 @@ class FixChecks(unittest.TestCase):
         before = copy.deepcopy(app.st)
         self.assertEqual(self.post("/api/undo", dict(light="all"))[0], 400)
         self.assertEqual(app.st, before)
+        app.lights["b"]["sku"] = "H619A"
+        app.st["b"]["history"] = [dict(app.DEFAULT, effect="custom", animation=dict(frames=[dict(pattern=[[1, 2, 3]], duration=1)], block=42))]
+        incompatible = copy.deepcopy(app.st)
+        self.assertEqual(self.post("/api/undo", dict(light="all"))[0], 400)
+        self.assertEqual(app.st, incompatible)
+        with self.assertRaises(ValueError):
+            self.answer([dict(type="undo", target="all")])
+        self.assertEqual(app.st, incompatible)
         with patch.object(app, "send", side_effect=OSError("test failure")):
             with self.assertRaises(OSError):
                 app.undo("a")
@@ -200,3 +210,5 @@ class FixChecks(unittest.TestCase):
         self.assertTrue(self.answer([dict(type="set", settings=dict(effect="solid"))])[1])
         self.assertFalse(self.answer([dict(type="undo")])[1])
         self.assertFalse(self.answer([])[1])
+        self.assertFalse(self.answer([dict(type="set", settings=dict(effect="solid")), dict(type="undo")])[1])
+        self.assertEqual(app.st["a"]["history"], [])
