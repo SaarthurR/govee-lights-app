@@ -1,5 +1,8 @@
 """Offline launcher/update checks. Only temporary HOME, fake server and ports 8771+."""
 import importlib.util
+from contextlib import contextmanager
+import os
+import signal
 import json
 from pathlib import Path
 import shutil
@@ -9,7 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 SOURCE = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('lights_update', SOURCE / 'launcher/update.py')
@@ -22,7 +25,7 @@ class LauncherTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='lights-launch-test-')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.old_here = update.HERE
         update.HERE = self.root
         self.addCleanup(setattr, update, 'HERE', self.old_here)
@@ -33,12 +36,20 @@ class LauncherTests(unittest.TestCase):
         self.config = dict(env={'GOVEE_DRY': '1'}, home=str(self.root), label='test', service='foreground',
                            update_url=self.meta.as_uri(), update_archive=(self.root / '{sha}').as_uri())
 
+    @contextmanager
+    def installer(self, action):
+        def start(command, **kwargs):
+            action(command, **kwargs)
+            return MagicMock(wait=MagicMock(return_value=0))
+        with patch.object(update.subprocess, 'Popen', side_effect=start), patch.object(update.subprocess, 'run', side_effect=action):
+            yield
+
     def test_update_new_same_failure_off_and_daily(self):
         runs = []
         def install(command, **kwargs):
             runs.append(command)
             (self.root / '.version').write_text(kwargs['env']['GOVEE_VERSION'])
-        with patch.object(update.subprocess, 'run', side_effect=install):
+        with self.installer(install):
             self.assertTrue(update.check(self.config))
             self.assertEqual(len(runs), 1)
             self.assertFalse(update.check(self.config, force=True))  # same commit
@@ -50,7 +61,7 @@ class LauncherTests(unittest.TestCase):
                     (self.root / '.version').write_text('broken')
                     (self.root / 'extra.py').touch()
                     raise subprocess.CalledProcessError(1, command)
-            with patch.object(update.subprocess, 'run', side_effect=fail):
+            with self.installer(fail):
                 self.assertFalse(update.check(self.config, force=True))
             self.assertEqual((self.root / '.version').read_text(), 'b' * 40)
             self.assertFalse((self.root / 'extra.py').exists())
@@ -72,9 +83,93 @@ class LauncherTests(unittest.TestCase):
         def install(command, **kwargs):
             if UPDATE & set(command):
                 (self.root / '.version').write_text('b' * 40)
-        with patch.object(update.subprocess, 'run', side_effect=install):
+        with self.installer(install):
             self.assertFalse(update.check(self.config, restart=restart))
         self.assertEqual(calls, ['b' * 40, 'a' * 40])
+
+    def test_failures_log_preserve_bad_state_and_retry_in_one_hour(self):
+        bad = self.root / 'state.json.bad'
+        bad.write_text('original corruption')
+        self.config['env']['GOVEE_STATE'] = str(self.root / 'custom.json')
+        custom_bad = self.root / 'custom.json.bad'
+        custom_bad.write_text('original custom corruption')
+        log = self.root / 'lights.log'
+        log.write_text('older log\n')
+        def fail(command, **kwargs):
+            if UPDATE & set(command):
+                kwargs['stdout'].write('installer stdout and stderr\n')
+                self.assertEqual(kwargs['stderr'], subprocess.STDOUT)
+                bad.write_text('new corruption')
+                custom_bad.write_text('new custom corruption')
+                raise subprocess.CalledProcessError(3, command)
+        with self.installer(fail):
+            self.assertFalse(update.check(self.config))
+        self.assertEqual(bad.read_text(), 'new corruption')
+        self.assertEqual(custom_bad.read_text(), 'new custom corruption')
+        self.assertTrue(log.read_text().startswith('older log\ninstaller stdout and stderr\n'))
+        self.assertIn('exit status 3', log.read_text())
+        for response in ('offline', 'bad sha'):
+            with self.subTest(response=response):
+                if response == 'offline':
+                    self.meta.unlink()
+                else:
+                    self.meta.write_text('{"sha":"bad"}')
+                self.assertFalse(update.check(self.config, force=True))
+                stamp = (self.root / '.last-update-check').stat().st_mtime
+                self.assertAlmostEqual(time.time() - stamp, 86400 - 3600, delta=2)
+                with patch.object(update, 'urlopen', side_effect=OSError('retry attempted')) as fetch:
+                    with patch.object(update.time, 'time', return_value=stamp + 86399):
+                        self.assertFalse(update.check(self.config))
+                        fetch.assert_not_called()
+                    with patch.object(update.time, 'time', return_value=stamp + 86401):
+                        self.assertFalse(update.check(self.config))
+                        fetch.assert_called_once()
+                self.assertIn('retry attempted', log.read_text())
+
+    def test_log_write_failure_does_not_prevent_rollback(self):
+        real_open = Path.open
+        log_opens = []
+        def open_file(path, *args, **kwargs):
+            if path == self.root / 'lights.log':
+                log_opens.append(path)
+                if len(log_opens) > 1:
+                    raise OSError('log is unwritable')
+            return real_open(path, *args, **kwargs)
+        def fail(command, **kwargs):
+            if UPDATE & set(command):
+                (self.root / '.version').write_text('broken')
+                raise subprocess.CalledProcessError(3, command)
+        with patch.object(Path, 'open', open_file), patch.object(update.subprocess, 'Popen', side_effect=fail), \
+             patch.object(update.subprocess, 'run', side_effect=fail):
+            self.assertFalse(update.check(self.config))
+        self.assertEqual((self.root / '.version').read_text(), 'a' * 40)
+        self.assertAlmostEqual(time.time() - (self.root / '.last-update-check').stat().st_mtime, 82800, delta=2)
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX process groups only')
+    def test_timeout_kills_installer_group_before_rollback(self):
+        process = MagicMock(pid=12345)
+        process.wait.side_effect = [subprocess.TimeoutExpired('installer', 180), 0]
+        with patch.object(update.subprocess, 'Popen', return_value=process) as start, \
+             patch.object(update.subprocess, 'run') as rebuild, patch.object(update.os, 'killpg') as kill:
+            self.assertFalse(update.check(self.config))
+        self.assertTrue(start.call_args.kwargs['start_new_session'])
+        kill.assert_called_once_with(12345, signal.SIGKILL)
+        self.assertEqual(process.wait.call_count, 2)
+        rebuild.assert_called_once()
+        self.assertIn('timed out', (self.root / 'lights.log').read_text())
+        self.assertAlmostEqual(time.time() - (self.root / '.last-update-check').stat().st_mtime, 82800, delta=2)
+
+    def test_windows_installer_uses_run_without_posix_session(self):
+        windows = MagicMock(wraps=update.os)
+        windows.name = 'nt'
+        windows.killpg = MagicMock()
+        with patch.object(update, 'os', windows), patch.object(update.subprocess, 'run') as run, \
+             patch.object(update.subprocess, 'Popen') as start:
+            self.assertTrue(update.check(self.config))
+        start.assert_not_called()
+        self.assertEqual(run.call_args.args[0][0], 'powershell.exe')
+        self.assertNotIn('start_new_session', run.call_args.kwargs)
+        windows.killpg.assert_not_called()
 
     def test_repeated_open_and_busy_port(self):
         shutil.copytree(SOURCE / 'launcher', self.root / 'launcher')
