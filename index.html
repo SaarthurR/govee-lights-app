@@ -77,11 +77,11 @@
   .timer.off .t { color:var(--mute); }
   .timer .power::before { content:""; position:absolute; inset:-6px -4px; }  /* 44px hit area */
   .warn { background:#fff4de; color:#6b4300; border-radius:12px; padding:10px 12px; font-size:14px; margin:10px 0 0; text-wrap:pretty; }
-  #timerSheet { border:0; padding:0; background:none; width:min(100% - 24px, 460px); max-width:100%; max-height:calc(100dvh - 24px); overscroll-behavior:contain; }
-  #timerSheet::backdrop { background:rgba(0,0,0,.35); }
-  #timerSheet .card { margin:0; }
-  #timerSheet[open] .card { animation:rise 250ms ease-out both; }
-  #timerSheet h2 { font-size:17px; font-weight:600; text-transform:none; letter-spacing:-.01em; color:var(--ink); }
+  :is(#timerSheet, #askSheet) { border:0; padding:0; background:none; width:min(100% - 24px, 460px); max-width:100%; max-height:calc(100dvh - 24px); overscroll-behavior:contain; }
+  :is(#timerSheet, #askSheet)::backdrop { background:rgba(0,0,0,.35); }
+  :is(#timerSheet, #askSheet) .card { margin:0; }
+  :is(#timerSheet, #askSheet)[open] .card { animation:rise 250ms ease-out both; }
+  :is(#timerSheet, #askSheet) h2 { font-size:17px; font-weight:600; text-transform:none; letter-spacing:-.01em; color:var(--ink); }
   .summary { font-size:17px; font-weight:600; letter-spacing:-.01em; line-height:1.35; }
   .summary small { display:block; font-size:14px; font-weight:400; color:var(--mute); margin-top:4px; }
   body.basic [data-advanced] { display:none !important; }
@@ -239,7 +239,7 @@
     .del::after { content:""; position:absolute; inset:-7px; }
   }
   @media (prefers-reduced-motion:reduce) {
-    [data-page], #qrBox .card, #timerSheet .card, .msg.new, .paintbar.on { animation-name:fade !important; }
+    [data-page], #qrBox .card, :is(#timerSheet, #askSheet) .card, .msg.new, .paintbar.on { animation-name:fade !important; }
     .wstep, .scanning { animation:none !important; }
     .msg.busy::after { animation:pulse 1.6s ease-in-out infinite; }
     * { scale:none !important; }
@@ -287,8 +287,8 @@
     .strip { grid-template-columns:repeat(12, minmax(0, 1fr)); gap:4px; }
     .fx { flex-direction:column; align-items:stretch; gap:4px !important; }
     .grid { grid-template-columns:repeat(2, 1fr); }
-    #timerSheet { width:100%; max-height:calc(100dvh - 12px); margin:auto 0 0; }  /* bottom sheet */
-    #timerSheet .card { border-radius:18px 18px 0 0; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
+    :is(#timerSheet, #askSheet) { width:100%; max-height:calc(100dvh - 12px); margin:auto 0 0; }  /* bottom sheet */
+ :is(#timerSheet, #askSheet) .card { border-radius:18px 18px 0 0; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
   }
 </style>
 </head>
@@ -439,12 +439,13 @@
       <button class="send" id="askBtn" aria-label="Send"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
     </form>
     <div class="chips" id="chips"></div>
-    <div class="hint" id="chatHint" hidden>Claude forgets this chat after 5 quiet minutes, so each ask stays cheap.</div>
+    <div class="hint" id="chatHint" hidden>Claude forgets this chat after 20 quiet minutes, so each ask stays cheap.</div>
   </div>
 
   <div class="card" id="colorCard">
     <h2>Colors</h2>
     <div class="colors" id="colors"></div>
+    <p class="hint" id="colorsNote" style="margin-top:6px" hidden></p>
     <div class="swatches" id="swatches" aria-label="Quick colors"></div>
     <div class="hint" style="margin-top:6px">Tap a color to pick it, then tap a swatch to swap it in.</div>
     <div class="row" style="margin-top:14px">
@@ -512,6 +513,11 @@
   </div>
   </section>
   </div>
+  <dialog id="askSheet" aria-labelledby="sheetTitle"><div class="card">
+    <h2 id="sheetTitle" style="white-space:pre-line"></h2>
+    <input class="field" id="sheetInput" autocomplete="off" enterkeyhint="done" aria-labelledby="sheetTitle">
+    <div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn" id="sheetNo">Cancel</button><button class="btn dark" id="sheetOk">OK</button></div>
+  </div></dialog>
   <dialog id="timerSheet" aria-labelledby="timerTitle"><div class="card">
     <h2 id="timerTitle">Add timer</h2>
     <div class="seg" id="actSeg"><button data-v="on">Turn on</button><button data-v="off">Turn off</button></div>
@@ -545,7 +551,7 @@ let N = 0, light = '', state = null, sel = new Set(), last = null, clips = [];
 const $ = id => document.getElementById(id);
 const hex = h => [1,3,5].map(i => parseInt(h.slice(i,i+2),16));
 const toHex = c => '#' + c.map(x => Math.round(x).toString(16).padStart(2,'0')).join('');
-const NAMES = {wave:'Wave', smoothwave:'Smooth wave', shimmer:'Shimmer', twinkle:'Twinkle', comet:'Comet', fire:'Fire', aurora:'Aurora', solid:'Solid', pattern:'Pattern', chase:'Chase', breathe:'Breathe', rainbow:'Rainbow'};
+const NAMES = {wave:'Wave', smoothwave:'Smooth wave', shimmer:'Shimmer', twinkle:'Twinkle', comet:'Comet', fire:'Fire', aurora:'Aurora', solid:'Solid', pattern:'Pattern', chase:'Chase', march:'March', breathe:'Breathe', rainbow:'Rainbow'};
 const AMOUNT = {wave:'Delay between bulbs', smoothwave:'Delay between bulbs', shimmer:'Depth', twinkle:'How many sparkle', comet:'How close together', fire:'Flicker', aurora:'Band size', chase:'Block size'};
 const CHIPS = ['Slower', 'Faster', 'More gold', 'More silver', 'Dimmer', 'Surprise me', 'Change it back'];
 const ids = () => state ? Object.keys(state.lights) : [];
@@ -614,13 +620,25 @@ async function loadThemes() {
     const w = document.createElement('div'); w.className = 'wrap'; $('mythemes').appendChild(w);
     const b = tile(w, name, frames, () => set({...s, on:true}, `${name} on ${where()}`)); b.dataset.look = JSON.stringify(s);
     const x = document.createElement('button'); x.className = 'del'; x.textContent = '×'; x.setAttribute('aria-label', 'Delete ' + name);
-    x.onclick = async () => { if (confirm(`Delete “${name}”?`)) { await post('/api/theme/delete', {name}, `Deleted “${name}”`); loadThemes(); } };
+    x.onclick = async () => { if (await sheet(`Delete “${name}”?`, undefined, 'Delete')) { await post('/api/theme/delete', {name}, `Deleted “${name}”`); loadThemes(); } };
     w.appendChild(x);
+  });
+}
+// asks in the page: the Mac app window ignores prompt() and confirm(), so those did nothing there
+function sheet(title, value, ok = 'OK') {  // value undefined = yes/no question; resolves true / the typed text / null
+  const d = $('askSheet'), inp = $('sheetInput');
+  $('sheetTitle').textContent = title; $('sheetOk').textContent = ok; inp.hidden = value === undefined; inp.value = value || '';
+  return new Promise(done => {
+    const end = yes => { d.close(); done(yes ? (value === undefined || inp.value.trim()) : null); };
+    $('sheetOk').onclick = () => end(true); $('sheetNo').onclick = () => end(false);
+    inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); end(true); } };
+    d.oncancel = () => done(null); d.onclick = e => { if (e.target === d) end(false); };
+    d.showModal(); (inp.hidden ? $('sheetOk') : inp).focus();
   });
 }
 async function saveTheme() {
   const s = cur(); if (!s) return;
-  const name = (prompt('Name this theme (same name = update it):') || '').trim(); if (!name) return;
+  const name = await sheet('Name this theme', '', 'Save'); if (!name) return;
   const j = await post('/api/theme', {name}, `Saved “${name}” to My themes`); if (j && j.ok) loadThemes();
 }
 const EVERY = [0, 1, 2, 3, 4, 5, 6];  // 0 = Monday, as on the server
@@ -887,10 +905,12 @@ document.querySelectorAll('input[type=range]').forEach(r => {
   r.addEventListener('input', () => { held = r; holdUntil = performance.now() + 1500; slid(r); });
   slid(r);
 });
-const NO_SPEED = ['solid', 'pattern', 'paint', 'custom'];
+const NO_SPEED = ['solid', 'pattern', 'paint'];
 let shownColors = '';
 function syncControls() {
   const s = cur(); if (!s) return;
+  const own = {rainbow: 'Rainbow makes its own colors. Pick another effect to use these.', custom: 'This animation has its own colors. Pick an effect to use these instead.'}[s.effect];
+  $('colorsNote').textContent = own || ''; $('colorsNote').hidden = !own;
   const full = advanced();
   document.body.classList.toggle('basic', !full); $('basicNote').hidden = full;
   $('swap').hidden = !full; $('chips').hidden = !full;
@@ -1136,7 +1156,7 @@ async function saveSetup() {
 }
 async function forget(id) {
   const n = nameOf(id);
-  if (!confirm(`Forget “${n}”?\n\nIts name, schedule and last look are removed. It stays on your Wi-Fi, so Scan again can add it back.`)) return;
+  if (!await sheet(`Forget “${n}”?\n\nIts name, schedule and last look are removed. It stays on your Wi-Fi, so Scan again can add it back.`, undefined, 'Forget')) return;
   const j = await post('/api/light/forget', {id}, `Forgot “${n}”`);
   if (j && j.ok) delete typed[id];
 }
@@ -1145,7 +1165,7 @@ $('power').onclick = () => { const on = !(cur() && cur().on); set({on}, `${where
 $('bright').onchange = () => set({brightness: +$('bright').value}, `Brightness ${$('bright').value}%`);
 $('speed').onchange = () => set({speed: +$('speed').value}, 'Speed updated');
 $('amount').onchange = () => set({amount: +$('amount').value}, `${$('amountLabel').textContent} updated`);
-// chat: the server keeps the last few turns and forgets them after 5 quiet minutes
+// chat: the server keeps the last few turns and forgets them after 20 quiet minutes
 let chatTimer;
 function bubble(who, text, isNew) {
   const d = document.createElement('div'); d.className = `msg ${who}${isNew ? ' new' : ''}`; d.textContent = text;
