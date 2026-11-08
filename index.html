@@ -1220,9 +1220,10 @@ function hideQR() { if (!$('qrBox').classList.contains('on')) return; $('qrBox')
 document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQR(); });
 let disconnected = false, serverVersion = '';
 async function refresh(quick) {  // quick = only the bulbs; the rest of the page syncs every 4th poll
-  try { state = await (await fetch('/api/state')).json(); if (!quick) syncControls(); draw(); }
+  try { state = await (await fetch('/api/state')).json(); draw(); }
   catch (e) { disconnected = true; alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
   if (disconnected) { alertUI('', false); disconnected = false; }
+  if (quick) return;
   if (serverVersion && state.update?.version !== serverVersion) { location.reload(); return; }
   serverVersion = state.update?.version || '';
   $('feedback').href = feedbackURL();
