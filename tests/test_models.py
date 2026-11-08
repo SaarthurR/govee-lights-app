@@ -51,9 +51,9 @@ class ModelChecks(unittest.TestCase):
         self.assertTrue(all(app.st[k]["effect"] == "solid" for k in ("UNKNOWN", "H6008")))
 
     def test_stream_lengths_and_h805d(self):
-        self.assertEqual(app.capability("H805D"), dict(bulbs=84, razer=True))
+        self.assertEqual(app.capability("H805D"), dict(bulbs=132, razer=True))
         self.assertEqual(app.capability("H619A"), dict(bulbs=20, razer=True))
-        for sku, n in (("H805D", 84), ("H619A", 20)):
+        for sku, n in (("H805D", 132), ("H619A", 20)):
             for effect in app.EFFECTS:
                 settings = dict(app.DEFAULT, effect=effect)
                 frame = app.render(settings, 1.7, n)

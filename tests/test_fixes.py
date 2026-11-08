@@ -170,7 +170,7 @@ class FixChecks(unittest.TestCase):
             self.assertEqual(self.post("/api/set", dict(light="all", settings=settings))[0], 400)
             self.assertEqual(app.st, before)
         app.push("a", dict(effect="paint", bulbs=[[1, 2, 3]], on=False))
-        self.assertEqual(len(app.st["a"]["frame"]), 84)
+        self.assertEqual(len(app.st["a"]["frame"]), 132)
         self.assertTrue(all(len(c) == 3 for c in app.st["a"]["frame"]))
 
     def test_all_undo_preflights_and_failed_send_keeps_history(self):
