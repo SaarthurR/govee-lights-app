@@ -1,7 +1,7 @@
 import Cocoa
 import WebKit
 
-final class App: NSObject, NSApplicationDelegate {
+final class App: NSObject, NSApplicationDelegate, WKUIDelegate {
     var window: NSWindow!
     var web: WKWebView!
     var loading = false
@@ -14,6 +14,7 @@ final class App: NSObject, NSApplicationDelegate {
         item.submenu = appMenu
         NSApp.mainMenu = menu
         web = WKWebView()
+        web.uiDelegate = self
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 860),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Govee Lights"
@@ -66,6 +67,12 @@ final class App: NSObject, NSApplicationDelegate {
         return true
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    // target="_blank" links (Send feedback, Claude Code help) do nothing in WKWebView without this; open them in the browser
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url { NSWorkspace.shared.open(url) }
+        return nil
+    }
 }
 // The LaunchAgent runs this mode so macOS grants Local Network access to Govee Lights; a bare python agent is silently denied.
 let server = Process()
