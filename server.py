@@ -421,12 +421,11 @@ def load():
         except (ValueError, TypeError, OverflowError):
             bad = True
     for k in st:
-        if k not in data:
+        if k not in data or not isinstance(data[k], dict):
+            bad = True
+            st[k]["on"] = False
             continue
         d = data[k]
-        if not isinstance(d, dict):
-            bad = True
-            continue
         history = d.get("history", [])
         if not isinstance(history, list):
             bad, history = True, []
@@ -451,6 +450,7 @@ def load():
             st[k].update(current)
         except (ValueError, TypeError, OverflowError):
             bad = True
+            st[k]["on"] = False  # a corrupt look must not turn a light on at startup
         st[k]["history"] = valid[-HISTORY:]
     for k, events in section("_outside").items():
         if k not in st:
@@ -661,7 +661,7 @@ def migrate(v):
     out = []
     for t in timers[:MAX_TIMERS]:
         try:
-            out.append(clean_timer(t, t, strict=False))  # a theme deleted since then just means the last look
+            out.append(clean_timer(t, t, strict=False, location_set=True))  # a theme deleted since then just means the last look
         except (ValueError, TypeError):
             pass  # skip a broken timer, keep the rest
     return {"use": v.get("use") is not False, "timers": out}  # saved before the switch: on
@@ -1190,6 +1190,7 @@ def _apply_answer(answer, keys):
         raise ValueError("Claude must return up to 16 actions.")
     looks, saved = {k: look(v) for k, v in st.items()}, dict(themes)
     histories = {k: list(v["history"]) for k, v in st.items()}
+    before_histories = {k: list(h) for k, h in histories.items()}
     scheds = {k: dict(v, timers=list(v["timers"])) for k, v in schedule.items()}
     changed_schedules = set()
     location_set = location is not None
@@ -1249,8 +1250,8 @@ def _apply_answer(answer, keys):
             elif kind == "ask_use":
                 if type(a.get("use")) is not bool:
                     raise ValueError("Ask use must be true or false.")
-                ask_on = a["use"]
                 with lock:
+                    ask_on = a["use"]
                     save()
             else:
                 chat.update(at=0, turns=[])
@@ -1316,7 +1317,9 @@ def _apply_answer(answer, keys):
             if any(not histories[k] for k in targets):
                 raise ValueError("Nothing to undo.")
             for k in targets:
-                looks[k] = histories[k].pop()
+                previous = histories[k].pop()
+                light_settings(k, previous)
+                looks[k] = previous
         if kind in ("save_theme", "rename_theme", "delete_theme", "rename_light"):
             name = a.get("name")
             if not isinstance(name, str) or not name.strip() or len(name) > (30 if kind == "rename_light" else 40):
@@ -1374,7 +1377,7 @@ def _apply_answer(answer, keys):
         with lock:
             schedule.update({k: scheds[k] for k in changed_schedules})
             save()
-    return answer["say"][:300], changed
+    return answer["say"][:300], changed and any(st[k]["history"] != h for k, h in before_histories.items())
 
 
 PREVIEWS = None
@@ -1551,6 +1554,8 @@ class H(BaseHTTPRequestHandler):
                 with lock:
                     if any(not st[k]["history"] for k in keys):
                         raise ValueError("Nothing to undo.")
+                    for k in keys:
+                        light_settings(k, st[k]["history"][-1])
                     for k in keys:
                         undo(k)
                 return self.reply(200, {"ok": True})
