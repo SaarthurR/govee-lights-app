@@ -4,7 +4,7 @@
 
 Moving, bulb-by-bulb effects and smarter timers for Govee light strips, from your computer or any phone on your Wi-Fi. No cloud, no account.
 
-<img src="docs/desktop.png" width="800" alt="Govee Lights on a computer: live strip of bulbs, Ask Claude, colors, and the schedule with two timers">
+<img src="docs/desktop.png" width="800" alt="Govee Lights on a computer: Control, Themes and Schedule tabs over the live strip of bulbs, Ask Claude, colors and effects">
 
 Wave, shimmer, twinkle, fire, aurora and more in your colors; tap bulbs to paint them; save themes; timers at a time or at sunset; an optional Ask Claude chat ("make it a slow police light"). It also works on a phone ([screenshot](docs/phone.png)): click **Open on phone** and scan the code.
 
