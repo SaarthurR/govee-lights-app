@@ -1391,6 +1391,9 @@ class H(BaseHTTPRequestHandler):
                     raise ValueError("Set up a light first.")
                 save_theme(body.get("name", ""), body.get("settings") or look(st[light]))
                 return self.reply(200, {"ok": True})
+            if self.path == "/api/theme/rename":  # same checks as Claude's rename; timers follow the new name
+                apply_answer({"say": "", "actions": [{"type": "rename_theme", "name": body.get("name"), "new": body.get("new")}]}, [])
+                return self.reply(200, {"ok": True})
             if self.path == "/api/theme/delete":
                 themes.pop(str(body.get("name", "")), None)
                 with lock:
