@@ -437,6 +437,11 @@
     <p class="wline">Claude is on this computer. Use it to make looks and schedules by just typing? It uses your Claude account.</p>
     <div class="row wgo"><button class="btn grow" onclick="useAsk(false)">Not now</button><button class="btn dark grow" onclick="useAsk(true)">Turn on</button></div>
   </div>
+  <div class="wstep" data-step="feedback">
+    <h1 class="wtitle">This app is new</h1>
+    <p class="wline">It may have bugs. If something goes wrong, tap <b>Send feedback</b> at the bottom of the page. It opens a GitHub issue with your app version and light models, never your names or addresses.</p>
+    <button class="btn dark wgo" onclick="step(1)">Got it</button>
+  </div>
   <div class="wstep" data-step="done">
     <h1 class="wtitle">You’re set.</h1>
     <button class="btn dark wgo" onclick="closeSetup()">Open my lights</button>
@@ -778,7 +783,7 @@ function drawTimers() {
   }
   $('timers').replaceChildren(...out);
   const full = keys.some(k => (sched[k] || {timers: []}).timers.length >= 10);
-  $('addTimer').disabled = full; $('timerCap').hidden = !full;
+  $('addTimer').disabled = full || !ids().length; $('timerCap').hidden = !full;
 }
 let schedKey = '';
 async function loadSchedule() {
@@ -1091,7 +1096,7 @@ function drawChips(p) {  // a chip ending in … fills the box for you to finish
   }));
   $('askText').placeholder = ASKS[p];
 }
-function pickTab(k) { light = k; if (!document.querySelector('[data-page=themes]').hidden) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); shownColors = ''; syncControls(); draw(); }
+function pickTab(k) { light = k; sel.clear(); last = null; if (!document.querySelector('[data-page=themes]').hidden) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); shownColors = ''; syncControls(); draw(); }
 let page = 'control';
 function showPage(p) {
   page = document.body.dataset.view = p; $('strip').inert = p !== 'control';
@@ -1146,12 +1151,12 @@ async function loadGovee() {
 }
 loadGovee();
 $('goveeForm').onsubmit = async e => {
-  e.preventDefault(); const key = $('goveeKey').value; $('goveeKey').value = '';
+  e.preventDefault(); const key = $('goveeKey').value;
   const button = $('connectGovee'); button.disabled = true;
   $('goveeStatus').textContent = 'Reading Govee device names…';
   const j = await post('/api/govee/refresh', key ? {key} : {});
   button.disabled = false;
-  if (j && j.ok) { await loadGovee(); $('goveeStatus').textContent = `Read ${j.count === 1 ? '1 Govee device' : j.count + ' Govee devices'}. New lights found on Wi-Fi get their Govee names.`; loadGoveeScenes(); }
+  if (j && j.ok) { $('goveeKey').value = ''; await loadGovee(); $('goveeStatus').textContent = `Read ${j.count === 1 ? '1 Govee device' : j.count + ' Govee devices'}. New lights found on Wi-Fi get their Govee names.`; loadGoveeScenes(); }
   else $('goveeStatus').textContent = j?.error || OFFLINE;
 };
 async function disconnectAccount() {
@@ -1195,7 +1200,7 @@ function drawOutside(data) {
 let setupOpen = false, setupKey = '', typed = {}, wsteps = null, wat = 0, scanning = false, welcomeDone = false;
 function openSetup() { setupOpen = true; setupKey = ''; typed = {}; drawSetup(); showSetup(); }
 function addLights() { openSetup(); scan(); }
-function openWelcome() { wsteps = ['hello', ...(lanBlocked() ? ['network'] : []), 'find', ...(state.claude ? ['claude'] : []), 'done']; wat = 0; openSetup(); }
+function openWelcome() { wsteps = ['hello', ...(lanBlocked() ? ['network'] : []), 'find', ...(state.claude ? ['claude'] : []), 'feedback', 'done']; wat = 0; openSetup(); }
 // macOS: the server sends nothing on the Wi-Fi until Continue, so its one Local Network prompt comes right after this explanation.
 // Then nobody gets past this step, from the welcome or as a blocker over every page, while access is off.
 let netAt = 0;
@@ -1340,6 +1345,7 @@ function drawChat(c) {  // never while an ask is out: its bubbles would be wiped
 function expireIn(s) { clearTimeout(chatTimer); if (s) chatTimer = setTimeout(() => drawChat({turns: []}), s * 1000); }
 async function newChat() { const j = await post('/api/chat/clear', {}, 'New chat'); if (j && j.ok) drawChat({turns: []}); }
 async function ask(text) {
+  if (asking) return;  // Enter or a chip while Claude is still thinking
   $('askBtn').disabled = true; $('askText').value = ''; asking = true;
   await refresh(); fixLight();
   $('log').querySelectorAll('.acts').forEach(x => x.remove());
@@ -1384,6 +1390,7 @@ async function refresh(quick) {  // quick = only the bulbs; the rest of the page
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
   $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
   $('noLights').hidden = ids().length > 0;
+  $('liveCard').hidden = $('colorCard').hidden = $('fxCard').hidden = !ids().length;  // no light to send them to
   if (ids().length) welcomeDone = true;
   if (!ids().length && !setupOpen && !welcomeDone) openWelcome();
   needLan();
@@ -1393,8 +1400,10 @@ async function refresh(quick) {  // quick = only the bulbs; the rest of the page
 // the lights change 12 times a second; polling about twice per change shows every step, so the live strip does not stutter
 let polls = 0, listsAt = 0;
 async function poll() {
-  await refresh(++polls % 4 > 0);
-  if (!document.hidden && performance.now() - listsAt > 5000) { listsAt = performance.now(); refreshLists(); }
+  try {  // one bad draw must not stop the page from updating
+    await refresh(++polls % 4 > 0);
+    if (!document.hidden && performance.now() - listsAt > 5000) { listsAt = performance.now(); refreshLists(); }
+  } catch (e) { console.error(e); }
   setTimeout(poll, document.hidden ? 2000 : 40);
 }
 function refreshLists() {  // other phones and Claude change these too; each redraws only when its data changed

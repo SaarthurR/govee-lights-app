@@ -78,7 +78,7 @@ delete context.state.lights.b; context.fixLight(); assert.equal(context.light, '
   context.state = {lights: {}}; context.light = '';
   let selected;
   context.refresh = async () => { context.state.lights.a = {name: 'First'}; };
-  Object.assign(context, {bubble: element, expireIn() {}, loadThemes() {}, loadSchedule() {},
+  Object.assign(context, {asking: false, bubble: element, expireIn() {}, loadThemes() {}, loadSchedule() {},
     post: async () => { selected = context.light; return {say: 'Done'}; }});
   vm.runInContext(extract('async function ask(text)', "fetch('/api/chat')"), context);
   await context.ask('question');

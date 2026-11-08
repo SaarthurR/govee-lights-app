@@ -212,3 +212,16 @@ class FixChecks(unittest.TestCase):
         self.assertFalse(self.answer([])[1])
         self.assertFalse(self.answer([dict(type="set", settings=dict(effect="solid")), dict(type="undo")])[1])
         self.assertEqual(app.st["a"]["history"], [])
+
+
+class HostChecks(unittest.TestCase):
+    def test_only_local_host_names_are_answered(self):  # DNS rebinding guard
+        def ok(host, ip="127.0.0.1"):
+            h = app.H.__new__(app.H)
+            h.client_address, h.headers = (ip, 0), {"Host": host}
+            return h.allowed()
+        for host in ("localhost:8765", "127.0.0.1:8765", "mac.local:8765", "192.168.1.5:8765", "[::1]:8765", "mypc", ""):
+            self.assertTrue(ok(host), host)
+        for host in ("evil.com:8765", "8.8.8.8", "localhost.evil.com"):
+            self.assertFalse(ok(host), host)
+        self.assertFalse(ok("localhost", ip="8.8.8.8"))

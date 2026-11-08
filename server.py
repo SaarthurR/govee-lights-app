@@ -365,9 +365,12 @@ def load():
     bad = False
     def keep_bad():
         backup = SAVE.with_name(SAVE.name + ".bad")
-        if not backup.exists():
-            shutil.copy2(SAVE, backup)
-            backup.chmod(0o600)
+        try:
+            if not backup.exists():
+                shutil.copy2(SAVE, backup)
+                backup.chmod(0o600)
+        except OSError as e:  # a read-only folder must not stop the app from starting
+            print("could not back up state.json:", e)
     try:
         data = json.loads(SAVE.read_text())
     except OSError:
@@ -497,9 +500,9 @@ def clean(p, n=N):
     if p.get("bulbs") is not None:
         b = rgb_list(p["bulbs"], N)[:n]
         p["bulbs"] = b + [[0, 0, 0]] * (n - len(b))
-    for k in ("speed", "amount"):
+    for k, hi in (("speed", 5.0), ("amount", 1.0)):  # amount over 1 drives fire and shimmer negative
         if k in p:
-            p[k] = max(0.05, min(5.0, float(p[k])))
+            p[k] = max(0.05, min(hi, float(p[k])))
     if "brightness" in p:
         p["brightness"] = max(1, min(100, int(p["brightness"])))
     if "on" in p:
@@ -512,7 +515,7 @@ def push(key, p, remember=True):
     """Send settings to the light. Hardware first, so the saved look only changes if the send works."""
     p = light_settings(key, p)
     paused.discard(key)
-    if not capability(key)["razer"]:
+    if not capability(key)["razer"] and p.get("on") is not False:  # a color command can wake a light that is turning off
         c = (p.get("colors") or st[key]["colors"])[0]
         send(key, "colorwc", {"color": dict(zip(("r", "g", "b"), c)), "colorTemInKelvin": 0})
     if "on" in p:
@@ -843,7 +846,7 @@ def save_lights(items):
                         st[dev].update(light_settings(dev, dict(look(st[dev]), effect="solid", animation=None)))
                     st[dev]["frame"] = [[0, 0, 0]] * bulbs
             else:
-                add_light(dev, name, found[dev]["sku"], found[dev]["ip"])
+                add_light(dev, name, found[dev]["sku"], found[dev]["ip"], bulbs)
                 new.append(dev)
         save()
     for dev in new:  # turn it on in per-bulb mode, so the strip shows the stream right away
@@ -1418,6 +1421,7 @@ class Server(ThreadingHTTPServer):
 
 
 class H(BaseHTTPRequestHandler):
+    timeout = 30  # a client that never sends its body must not hold a thread forever
     def reply(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code); self.send_header("Content-Type", ctype); self.end_headers(); self.wfile.write(data)
@@ -1427,7 +1431,14 @@ class H(BaseHTTPRequestHandler):
             a = ipaddress.ip_address(self.client_address[0])
         except ValueError:
             return False
-        return a.is_private or a.is_loopback  # home Wi-Fi and this computer only
+        if not (a.is_private or a.is_loopback):  # home Wi-Fi and this computer only
+            return False
+        # DNS rebinding: a website can point its own domain at this computer; only answer local names and IPs
+        host = self.headers.get("Host", "").rsplit(":", 1)[0].strip("[]").lower().rstrip(".")
+        try:
+            return ipaddress.ip_address(host).is_private or ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return not host or "." not in host or host.endswith((".local", ".lan", ".home", ".home.arpa", ".internal"))
 
     def do_GET(self):
         if not self.allowed():
@@ -1605,7 +1616,7 @@ class H(BaseHTTPRequestHandler):
             self.reply(404, {"error": "unknown endpoint"})
         except subprocess.TimeoutExpired:
             self.reply(504, {"error": "Claude took too long. Try again."})
-        except (ValueError, TypeError, KeyError) as e:
+        except (ValueError, TypeError, KeyError, OverflowError) as e:
             self.reply(400, {"error": str(e)})
         except Exception as e:  # never leave the phone hanging without an answer
             blocked = sys.platform == "darwin" and getattr(e, "errno", None) == errno.EHOSTUNREACH
