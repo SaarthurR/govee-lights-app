@@ -26,15 +26,15 @@
   .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .grow { flex:1; min-width:140px; }
   /* sliders: --p (0..1) is set from JS for the filled part; .drag is on while a finger or mouse holds it */
-  input[type=range] { -webkit-appearance:none; appearance:none; display:block; width:100%; height:44px; margin:0; background:none; pointer-events:none; --p:.5; --h:6px; --t:24px; }
+  input[type=range] { -webkit-appearance:none; appearance:none; display:block; width:100%; height:44px; margin:0; background:none; pointer-events:none; --p:.5; --h:6px; --t:24px; --fill:var(--ink); }
   .ctl:has(> input[type=range]) { touch-action:pan-y; cursor:pointer; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
   .ctl:has(> input[type=range]:disabled) { cursor:default; }
-  input[type=range]::-webkit-slider-runnable-track { height:var(--h); border-radius:99px; background:linear-gradient(var(--ink), var(--ink)) 0 0 / calc(var(--t) / 2 + var(--p) * (100% - var(--t))) 100% no-repeat, #e4e2dc; transition:height 200ms var(--ease-out); }
+  input[type=range]::-webkit-slider-runnable-track { height:var(--h); border-radius:99px; background:linear-gradient(var(--fill), var(--fill)) 0 0 / calc(var(--t) / 2 + var(--p) * (100% - var(--t))) 100% no-repeat, #e4e2dc; transition:height 200ms var(--ease-out); }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:var(--t); height:var(--t); margin-top:calc((var(--h) - var(--t)) / 2); border-radius:50%; background:#fff; box-shadow:0 0 0 .5px rgba(0,0,0,.14), 0 2px 6px rgba(0,0,0,.16); transition:margin-top 200ms var(--ease-out), scale 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
   input[type=range].drag { --h:12px; }
   input[type=range].drag::-webkit-slider-thumb { scale:1.12; box-shadow:0 0 0 .5px rgba(0,0,0,.14), 0 4px 12px rgba(0,0,0,.2); }
   input[type=range]::-moz-range-track { height:var(--h); border-radius:99px; background:#e4e2dc; }
-  input[type=range]::-moz-range-progress { height:var(--h); border-radius:99px; background:var(--ink); }
+  input[type=range]::-moz-range-progress { height:var(--h); border-radius:99px; background:var(--fill); }
   input[type=range]::-moz-range-thumb { width:var(--t); height:var(--t); border:0; border-radius:50%; background:#fff; box-shadow:0 0 0 .5px rgba(0,0,0,.14), 0 2px 6px rgba(0,0,0,.16); }
   input[type=range]:disabled { opacity:.35; }
   input[type=range]:focus-visible { outline:none; }
@@ -88,14 +88,22 @@
   [hidden] { display:none !important; }
   .sub { text-transform:none; letter-spacing:0; font-weight:400; }
   .controls { display:flex; align-items:flex-end; gap:16px; }
-  .paintbar { display:none; flex-wrap:wrap; gap:8px; align-items:center; background:var(--soft); border-radius:14px; padding:10px; margin:-4px 0 14px; }
+  /* off: empty sockets, a grey slider; dragging brightness turns the light back on */
+  #liveCard.off input[type=range] { --fill:#c4c1ba; }
+  .paintbar { display:none; flex-wrap:wrap; gap:8px; align-items:center; background:var(--soft); border-radius:14px; padding:10px; margin-top:12px; }
   .paintbar.on { display:flex; animation:rise 200ms var(--ease-out) both; }
   .paintbar .btn { padding:0 14px; }
-  .paintbar .hint { width:100%; margin:0 2px; }
-  .selcount { font-weight:600; font-size:15px; margin:0 4px; font-variant-numeric:tabular-nums; }
-  .strip { display:grid; grid-template-columns:repeat(21, minmax(0, 1fr)); gap:5px; margin-bottom:14px; }
-  .bulb { min-width:0; width:100%; aspect-ratio:1; border-radius:50%; border:0; padding:0; background:#222; box-shadow:inset 0 0 0 1px rgba(0,0,0,.08); cursor:pointer; outline-offset:2px; }
+  #paintBtn { flex:1; font-variant-numeric:tabular-nums; }
+  .paintbar .sels { width:100%; gap:6px; flex-wrap:nowrap; }
+  .paintbar .linkbtn { background:var(--card); }
+  .paintbar .hint { flex:1; min-width:0; margin:0 0 0 6px; }
+  .strip { display:grid; grid-template-columns:repeat(21, minmax(0, 1fr)); gap:5px; margin-top:14px; }
+  .bulb { min-width:0; width:100%; aspect-ratio:1; border-radius:50%; border:0; padding:0; background:#e9e7e2; box-shadow:inset 0 0 0 1px rgba(0,0,0,.08); cursor:pointer; outline-offset:2px; }
   .bulb.sel { outline:3px solid var(--ink); outline-offset:1px; }
+  /* off Control the strip is a slim, read-only preview */
+  body:not([data-view=control]) .strip { grid-template-columns:repeat(var(--n), minmax(0, 1fr)); gap:0; height:10px; border-radius:99px; overflow:hidden; }
+  body:not([data-view=control]) .bulb { aspect-ratio:auto; height:100%; border-radius:0; box-shadow:none; }
+  body:not([data-view=control]) #liveCard .sub { display:none; }
   .ask { display:flex; gap:8px; }
   .ask input { flex:1; min-width:0; border:1px solid var(--line); border-radius:12px; padding:12px 14px; font:inherit; background:var(--soft); }
   .ask input:focus { outline:2px solid var(--ink); outline-offset:-1px; background:#fff; }
@@ -239,7 +247,7 @@
     .del::after { content:""; position:absolute; inset:-7px; }
   }
   @media (prefers-reduced-motion:reduce) {
-    [data-page], #qrBox .card, :is(#timerSheet, #askSheet) .card, .msg.new, .paintbar.on { animation-name:fade !important; }
+    [data-page], #qrBox .card, :is(#timerSheet, #askSheet) .card, .msg.new, .paintbar.on, #askCard.open { animation-name:fade !important; }
     .wstep, .scanning { animation:none !important; }
     .msg.busy::after { animation:pulse 1.6s ease-in-out infinite; }
     * { scale:none !important; }
@@ -248,24 +256,48 @@
     #toast { transform:translate(-50%, 0); }
   }
   #addLights { margin-right:auto; }
-  .askhint { display:block; width:100%; border:0; background:none; padding:0; font:inherit; font-size:13px; color:var(--mute); text-align:left; cursor:pointer; margin-top:16px; }
-  @media (hover:hover) { .askhint:hover { color:var(--ink); } }
-  /* wide windows: still one page at a time, each page laid out for the width */
+  #askClose { padding:0 8px; }
+  #askClose .i { margin:0; }
+  /* wide windows: Live and Ask Claude stay in a sticky left column on every page; the page fills the right */
   @media (min-width:1000px) {
     main { max-width:1200px; padding-inline:32px; }
     #app .card { padding:20px; margin-bottom:20px; }
     .pages { width:100%; max-width:480px; margin:0 auto 24px; }
-    .strip { grid-template-columns:repeat(21, minmax(0, 32px)); }
-    #app:has(> [data-page=control]:not([hidden])) { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); column-gap:20px; align-items:start;
-      grid-template-rows:auto auto auto 1fr; grid-template-areas:"nav nav" "empty empty" "live colors" "ask fx"; }
-    #app:has(> [data-page=control]:not([hidden])):has(#askCard[hidden]) { grid-template-areas:"nav nav" "empty empty" "live fx" "colors fx"; }
-    body.basic #app:has(> [data-page=control]:not([hidden])) { grid-template-areas:"nav nav" "empty empty" "live colors" "ask colors"; }
-    [data-page=control] { display:contents; }
-    #pages { grid-area:nav; } #noLights { grid-area:empty; } #liveCard { grid-area:live; } #askCard { grid-area:ask; } #colorCard { grid-area:colors; } #fxCard { grid-area:fx; }
-    #app:has(> [data-page=schedule]:not([hidden])) > .card, [data-page=schedule] { max-width:720px; margin-inline:auto; }
+    #app { display:grid; grid-template-columns:minmax(0, 420px) minmax(0, 1fr); column-gap:20px; align-items:start; }
+    #pages, #noLights { grid-column:1 / -1; }
+    [data-page] { grid-column:2; min-width:0; }
+    #side { position:sticky; top:20px; display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
+    #side > *, #askCard > * { flex:none; }
+    #app #askCard { display:flex; flex-direction:column; flex-shrink:1; min-height:0; margin-bottom:0; }
+    #askCard .logbox { flex-shrink:1; min-height:0; max-height:none; }
+    #askClose { display:none; }
+    .strip { grid-template-columns:repeat(14, minmax(0, 1fr)); }
     #account, #setup:not(.welcome) { max-width:640px; margin-inline:auto; }
   }
+  /* narrower: Ask Claude is a bar docked at the bottom of every page that opens into a sheet */
+  @media (max-width:999px) {
+    #askCard { position:fixed; z-index:12; left:0; right:0; bottom:calc(12px + var(--kb, 0px) + env(safe-area-inset-bottom)); width:min(100% - 24px, 560px); margin:0 auto;
+      display:flex; flex-direction:column; max-height:calc(100dvh - 24px - var(--kb, 0px) - env(safe-area-inset-top) - env(safe-area-inset-bottom)); box-shadow:0 8px 32px rgba(0,0,0,.16); }
+    #askCard > * { flex:none; }
+    #askCard .logbox { flex-shrink:1; min-height:0; max-height:none; }
+    #askCard.open { animation:rise 250ms var(--ease-out) both; }
+    #askCard.open .composer { order:1; margin-top:12px; }
+    #askCard.open #chatHint { order:2; }
+    #askCard:not(.open) { padding:0; border:0; background:none; box-shadow:none; }
+    #askCard:not(.open) > :not(.composer) { display:none; }
+    #askCard:not(.open) .composer { background:var(--card); border-color:transparent; box-shadow:0 4px 18px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.08); }
+    body:has(#app:not([hidden]) #askCard.open:not([hidden])) { overflow:hidden; }
+    body:has(#app:not([hidden]) #askCard.open:not([hidden]))::after { content:""; position:fixed; inset:0; z-index:11; background:rgba(0,0,0,.25); animation:fade 200ms ease-out both; }
+    body:has(#askCard.open:not([hidden])) #toast { bottom:auto; top:calc(12px + env(safe-area-inset-top)); }
+    main:has(#askCard:not([hidden])) { padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
+  }
   @media (max-width:560px) {
+    header { margin-bottom:12px; row-gap:10px; }
+    h1 { font-size:26px; }
+    #askCard:not(.open) { bottom:calc(76px + env(safe-area-inset-bottom)); }
+    #askCard.open { bottom:var(--kb, 0px); width:100%; border-radius:18px 18px 0 0; border-bottom:0; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
+    main:has(#askCard:not([hidden])) { padding-bottom:calc(140px + env(safe-area-inset-bottom)); }
+    body:has(#askCard:not([hidden])) #toast { bottom:calc(136px + env(safe-area-inset-bottom)); }
     .head-right > .btn { display:none; }
     #addLights { margin-right:0; }
     .head-right { width:100%; }
@@ -292,11 +324,11 @@
   }
 </style>
 </head>
-<body>
+<body data-view="control">
 <main>
   <header>
     <h1>Lights</h1>
-    <button class="linkbtn" id="addLights" onclick="addLights()" title="Find lights on your Wi-Fi, or rename and forget saved ones"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add lights</button>
+    <button class="linkbtn" id="addLights" onclick="addLights()" title="Add, rename or forget lights, or reconnect them">Manage lights</button>
     <div class="head-right">
     <div class="tabs" id="tabs" hidden></div>
     <button class="btn" onclick="showQR()">Open on phone</button>
@@ -379,6 +411,7 @@
     </div>
     <div class="row" id="setupBtns" style="margin-top:20px">
       <button class="btn" id="scanBtn" onclick="scan()">Scan again</button>
+      <button class="btn" id="setupReconnect" onclick="reconnect(this)" title="Finds the lights again, for example after a power cut or a router change">Reconnect</button>
       <button class="btn dark grow" id="setupSave" onclick="saveSetup()">Save lights</button>
     </div>
   </div>
@@ -405,33 +438,32 @@
     <div class="summary">No lights yet<small>Find the Govee lights on your Wi-Fi, then give each one a name.</small></div>
     <button class="btn dark" style="margin-top:14px" onclick="addLights()">Find lights</button>
   </div>
+  <div id="side">
   <div class="card" id="liveCard">
     <div class="head">
       <h2>Live <span class="sub" data-advanced>· tap bulbs to recolor</span></h2>
       <button class="linkbtn" id="undo" onclick="undo()" title="Go back to the last look" disabled><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo</button>
     </div>
     <div class="alert" id="alert" role="alert" hidden><span id="alertText"></span><button class="btn" id="alertFix" onclick="reconnect(this)">Reconnect</button></div>
+    <p class="hint" id="allNote" style="margin:0 0 4px" hidden></p>
     <p class="hint" id="basicNote" hidden>This light gets on/off, brightness, color and schedules. Per-bulb effects are only on supported strips.</p>
+    <div class="controls">
+      <div class="ctl"><label class="small" for="power" id="powerLabel">Power</label><button class="power" id="power" aria-label="Power"></button></div>
+      <div class="ctl grow"><label class="small" for="bright">Brightness <b id="brightVal" aria-hidden="true">100%</b></label><input type="range" id="bright" min="1" max="100" value="100"></div>
+    </div>
     <div class="strip" id="strip" data-advanced></div>
     <div class="paintbar" id="paintbar" data-advanced>
-      <span id="selCount" class="selcount"></span>
       <input type="color" id="pick" value="#ffffff" aria-label="Paint color">
-      <button class="btn dark" onclick="paint()">Paint them</button>
-      <span class="grow" style="min-width:0"></span>
-      <button class="btn" onclick="selectEvery(2)">Every 2nd</button>
-      <button class="btn" onclick="selectEvery(1)">All</button>
+      <button class="btn dark" id="paintBtn" onclick="paint()">Paint</button>
       <button class="btn" onclick="sel.clear();draw()">Cancel</button>
-      <div class="hint">Pick a color, then tap “Paint them”. The lights stop moving and show exactly this.</div>
-    </div>
-    <div class="controls">
-      <div class="ctl"><label class="small" for="power">Power</label><button class="power" id="power" aria-label="Power"></button></div>
-      <div class="ctl grow"><label class="small" for="bright">Brightness <b id="brightVal" aria-hidden="true">100%</b></label><input type="range" id="bright" min="1" max="100" value="100"></div>
+      <div class="row sels"><button class="linkbtn" onclick="selectEvery(2)">Every 2nd</button><button class="linkbtn" onclick="selectEvery(1)">All</button>
+        <span class="hint">The lights stop moving and show exactly this.</span></div>
     </div>
   </div>
 
-  <section data-page="control">
   <div class="card" id="askCard" hidden>
-    <div class="head"><h2>Ask Claude</h2><button class="linkbtn" id="newChat" hidden onclick="newChat()"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New chat</button></div>
+    <div class="head"><h2>Ask Claude</h2><span class="row" style="gap:6px;flex-wrap:nowrap"><button class="linkbtn" id="newChat" hidden onclick="newChat()"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
+      <button class="linkbtn" id="askClose" aria-label="Close Ask Claude" onclick="askOpen(false)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>
     <div class="logbox"><div class="log" id="log" hidden aria-live="polite"></div></div>
     <p class="chat-empty">Describe a look or a schedule, and Claude sets it up.</p>
     <form class="composer" id="askForm">
@@ -441,7 +473,9 @@
     <div class="chips" id="chips"></div>
     <div class="hint" id="chatHint" hidden>Claude forgets this chat after 20 quiet minutes, so each ask stays cheap.</div>
   </div>
+  </div>
 
+  <section data-page="control">
   <div class="card" id="colorCard">
     <h2>Colors</h2>
     <div class="colors" id="colors"></div>
@@ -461,7 +495,6 @@
       <div class="ctl grow"><label class="small" for="amount"><span id="amountLabel">Amount</span> <b id="amountVal" aria-hidden="true"></b></label><input type="range" id="amount" min="0.05" max="1" step="0.01" value="0.5"></div>
     </div>
     <div class="grid" id="effects"></div>
-    <button class="askhint" onclick="askFocus()" hidden>Don't see the look you want? Ask Claude. It can make new effects and animations.</button>
   </div>
   </section>
 
@@ -470,7 +503,6 @@
     <h2>My themes</h2>
     <div class="grid" id="mythemes"></div>
     <div class="hint" id="themesHint">No themes yet. Set up a look on Control, then tap “Save as theme”.<span id="themesAsk" hidden> Or ask Claude: “save this as movie night”.</span></div>
-    <button class="askhint" onclick="askFocus()" hidden>Ask Claude to make a theme from scratch.</button>
   </div>
   <div class="card" id="groups"></div>
   <div class="card" id="goveeGroup" hidden>
@@ -504,7 +536,6 @@
     </div>
     </fieldset>
     <div class="hint">An On timer shows your last look unless you pick a theme. The schedule only runs while this computer is on and running the app.</div>
-    <button class="askhint" onclick="askFocus()" hidden>Ask Claude to set up any schedule, like “on at sunset, off at 11 on weekdays”.</button>
     <details><summary>Lights turning on or off by themselves?</summary>
       <p class="hint">Timers and automations made in the Govee Home app keep running alongside this schedule. To find one, open the light in Govee Home and check Timer, then Automation. This app never changes them.</p>
       <p class="hint">While this computer is awake, the app notes when something else turns a light on or off. If it happens at about the same time on two different days, a warning shows under the schedule.</p>
@@ -538,7 +569,6 @@
     </div>
   </div></dialog>
   <p class="foot"><span id="footApp">Lights not responding? <button class="linkbtn" onclick="reconnect(this)" title="Finds the lights again, for example after a power cut or a router change">Reconnect</button>
-    <button class="linkbtn" onclick="openSetup()">Manage lights</button>
     <button class="linkbtn" id="askUse" onclick="useAsk(!state.ask)" hidden></button>
     <span id="askGet" style="width:100%;order:1" hidden>Ask Claude needs <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a> on this computer.</span></span>
     <label><input type="checkbox" id="autoUpdate" checked onchange="post('/api/update', {enabled:this.checked})"> Auto-update <span id="appVersion" class="small"></span></label>
@@ -553,7 +583,9 @@ const hex = h => [1,3,5].map(i => parseInt(h.slice(i,i+2),16));
 const toHex = c => '#' + c.map(x => Math.round(x).toString(16).padStart(2,'0')).join('');
 const NAMES = {wave:'Wave', smoothwave:'Smooth wave', shimmer:'Shimmer', twinkle:'Twinkle', comet:'Comet', fire:'Fire', aurora:'Aurora', solid:'Solid', pattern:'Pattern', chase:'Chase', march:'March', breathe:'Breathe', rainbow:'Rainbow'};
 const AMOUNT = {wave:'Delay between bulbs', smoothwave:'Delay between bulbs', shimmer:'Depth', twinkle:'How many sparkle', comet:'How close together', fire:'Flicker', aurora:'Band size', chase:'Block size'};
-const CHIPS = ['Slower', 'Faster', 'More gold', 'More silver', 'Dimmer', 'Surprise me', 'Change it back'];
+const CHIPS = {control: ['Slower', 'Faster', 'More gold', 'More silver', 'Dimmer', 'Surprise me', 'Change it back'],
+  themes: ['Save this as …', 'Make a cozy theme', 'Make a party theme'], schedule: ['On at sunset', 'Off at midnight', 'Off at 11 on weekdays']};
+const ASKS = {control: 'Make it slower and more gold…', themes: 'Save this as movie night…', schedule: 'On at sunset, off at 11…'};
 const ids = () => state ? Object.keys(state.lights) : [];
 const lead = () => light === 'all' ? ids()[0] : light;  // "All" shows and edits from the first light
 const cur = () => state && state.lights[lead()];
@@ -916,7 +948,11 @@ function syncControls() {
   $('colorsNote').textContent = own || ''; $('colorsNote').hidden = !own;
   const full = advanced();
   document.body.classList.toggle('basic', !full); $('basicNote').hidden = full;
-  $('swap').hidden = !full; $('chips').hidden = !full;
+  $('swap').hidden = !full; $('chips').hidden = !full && page === 'control';
+  $('liveCard').classList.toggle('off', !s.on); $('powerLabel').textContent = s.on ? 'On' : 'Off';
+  const all = light === 'all' ? `Changes go to ${and(ids().map(nameOf))}. Showing ${nameOf(lead())}’s settings.` : '';
+  if ($('allNote').textContent !== all) $('allNote').textContent = all;
+  $('allNote').hidden = !all;
   document.querySelectorAll('#groups .tile, #mythemes .wrap').forEach(b => {
     const p = JSON.parse((b.dataset.look ? b : b.querySelector('.tile')).dataset.look);
     b.hidden = !full && (p.effect !== 'solid' || p.colors?.length !== 1);
@@ -943,9 +979,9 @@ function syncControls() {
 }
 function draw() {
   $('paintbar').classList.toggle('on', sel.size > 0);
-  $('selCount').textContent = sel.size === 1 ? '1 bulb' : sel.size + ' bulbs';
+  $('paintBtn').textContent = 'Paint ' + (sel.size === 1 ? '1 bulb' : sel.size + ' bulbs');
   const s = cur(), f = s ? s.frame : [];
-  $('strip').querySelectorAll('.bulb').forEach((b, i) => { const c = (s && s.on) ? (f[i] || [0,0,0]) : [40,40,40]; b.style.background = `rgb(${c})`; b.classList.toggle('sel', sel.has(i)); });
+  $('strip').querySelectorAll('.bulb').forEach((b, i) => { b.style.background = s && s.on ? `rgb(${f[i] || [0,0,0]})` : ''; b.classList.toggle('sel', sel.has(i)); });
 }
 function selectEvery(k) { sel.clear(); for (let i = 0; i < N; i += k) sel.add(i); draw(); }
 function paint() {
@@ -956,6 +992,7 @@ function paint() {
 }
 
 function buildStrip() {
+  $('strip').style.setProperty('--n', N);
   for (let i = 0; i < N; i++) {
     const b = document.createElement('button'); b.className = 'bulb'; b.setAttribute('aria-label', 'Bulb ' + (i+1));
     b.onclick = e => { if (e.shiftKey && last !== null) { for (let j = Math.min(last,i); j <= Math.max(last,i); j++) sel.add(j); } else sel.has(i) ? sel.delete(i) : sel.add(i); last = i; draw(); };
@@ -967,18 +1004,38 @@ SWATCHES.forEach(([name, c]) => {
   b.onclick = () => { const s = cur(); if (!s) return; if (s.effect === 'custom' && s.animation) { const old = animColors(s.animation); return set({animation: recolor(s.animation, old[Math.min(picked, old.length - 1)], c)}, `${name} added`); } const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: advanced() ? cs : [c]}, `${name} added`); };
   $('swatches').appendChild(b);
 });
-CHIPS.forEach(t => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = t; c.onclick = () => ask(t); $('chips').appendChild(c); });
+function drawChips(p) {  // a chip ending in … fills the box for you to finish; the others ask right away
+  $('chips').replaceChildren(...CHIPS[p].map(t => {
+    const c = document.createElement('button'); c.className = 'chip'; c.textContent = t;
+    c.onclick = () => { if (!t.endsWith('…')) return ask(t); const i = $('askText'); i.value = t.slice(0, -1); i.focus(); i.setSelectionRange(99, 99); };
+    return c;
+  }));
+  $('askText').placeholder = ASKS[p];
+}
 function pickTab(k) { light = k; if (!document.querySelector('[data-page=themes]').hidden) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); shownColors = ''; syncControls(); draw(); }
+let page = 'control';
 function showPage(p) {
+  page = document.body.dataset.view = p; $('strip').inert = p !== 'control';
+  if (p !== 'control' && sel.size) { sel.clear(); draw(); }
+  drawChips(p);
   document.querySelectorAll('[data-page]').forEach(x => x.hidden = x.dataset.page !== p);
   document.querySelectorAll('#pages button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
   try { localStorage.page = p; } catch (_) {}
   if (p === 'schedule') loadSchedule();
   if (p === 'themes') loadGoveeScenes();
 }
-function askFocus() { showPage('control'); $('askText').focus(); }
 $('pages').onclick = e => { const b = e.target.closest('button'); if (b) showPage(b.dataset.p); };
-try { if (['control','themes','schedule'].includes(localStorage.page)) showPage(localStorage.page); } catch (_) {}
+let savedPage; try { savedPage = localStorage.page; } catch (_) {}
+showPage(['themes', 'schedule'].includes(savedPage) ? savedPage : 'control');
+// below 1000px Ask Claude is a docked bar: focusing it opens the chat sheet; the dimmed page behind closes it
+const askOpen = on => $('askCard').classList.toggle('open', on);
+$('askText').addEventListener('focus', () => askOpen(true));
+document.body.addEventListener('click', e => { if (e.target === document.body) askOpen(false); });
+// iOS leaves fixed elements behind the keyboard; lift the sheet by the part of the window the keyboard covers
+if (window.visualViewport) for (const ev of ['resize', 'scroll']) visualViewport.addEventListener(ev, () => {
+  const kb = document.activeElement === $('askText') ? Math.max(0, innerHeight - visualViewport.height - visualViewport.offsetTop) : 0;
+  document.documentElement.style.setProperty('--kb', kb + 'px');
+});
 // light picker: one tab per saved light, plus "All" when there are 2 or more
 let tabsKey = '';
 function drawTabs() {
@@ -1139,6 +1196,7 @@ function drawSetup() {
   $('setupIntro').classList.toggle('scanning', scanning); $('setupIntro').hidden = !$('setupIntro').textContent;
   $('setupList').hidden = $('setupBtns').hidden = scanning;
   $('setupEmpty').hidden = !first || found.length > 0 || scanning;
+  $('setupReconnect').hidden = !!wsteps || !saved.length;
   $('setupSave').hidden = !rows.length; $('setupSave').textContent = wsteps ? 'Continue' : 'Save lights';
   $('scanBtn').classList.toggle('dark', !rows.length);
 }
@@ -1166,7 +1224,7 @@ async function forget(id) {
 }
 $('tabs').onclick = e => { if (e.target.dataset.k) pickTab(e.target.dataset.k); };
 $('power').onclick = () => { const on = !(cur() && cur().on); set({on}, `${where()} turned ${on ? 'on' : 'off'}`); };
-$('bright').onchange = () => set({brightness: +$('bright').value}, `Brightness ${$('bright').value}%`);
+$('bright').onchange = () => set({brightness: +$('bright').value, ...(cur()?.on ? {} : {on: true})}, `Brightness ${$('bright').value}%`);
 $('speed').onchange = () => set({speed: +$('speed').value}, 'Speed updated');
 $('amount').onchange = () => set({amount: +$('amount').value}, `${$('amountLabel').textContent} updated`);
 // chat: the server keeps the last few turns and forgets them after 20 quiet minutes
@@ -1217,7 +1275,7 @@ function showQR() {
   $('qrBox').classList.add('on'); $('qrBox').querySelector('.btn').focus();
 }
 function hideQR() { if (!$('qrBox').classList.contains('on')) return; $('qrBox').classList.remove('on'); document.querySelector('[onclick="showQR()"]').focus(); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQR(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) { hideQR(); askOpen(false); } });
 let disconnected = false, serverVersion = '';
 async function refresh() {
   try { state = await (await fetch('/api/state')).json(); syncControls(); draw(); }
@@ -1229,7 +1287,6 @@ async function refresh() {
   $('autoUpdate').checked = state.update?.enabled !== false;
   $('appVersion').textContent = (state.update?.version || state.version).slice(0, 12);
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
-  document.querySelectorAll('.askhint').forEach(b => b.hidden = $('askCard').hidden);
   $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
   $('noLights').hidden = ids().length > 0;
   if (ids().length) welcomeDone = true;
