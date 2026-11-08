@@ -508,7 +508,7 @@ def clean(p, n=N):
     return p
 
 
-def push(key, p, remember=True, *, save=True):
+def push(key, p, remember=True, *, persist=True):
     """Send settings to the light. Hardware first, so the saved look only changes if the send works."""
     p = light_settings(key, p)
     paused.discard(key)
@@ -528,22 +528,22 @@ def push(key, p, remember=True, *, save=True):
         if added:
             s["history"] = (s["history"] + [before])[-HISTORY:]  # only looks go in undo, not on/off taps
         s["error"] = None
-        if save:
-            globals()["save"]()
+        if persist:
+            save()
     if s["on"]:
         razer(key, ARM)
     return added
 
 
-def undo(key, *, save=True):
+def undo(key, *, persist=True):
     with lock:
         if not st[key]["history"]:
             raise ValueError("Nothing to undo.")
         prev = {k: v for k, v in st[key]["history"][-1].items() if k not in ("on", "brightness")}
-        push(key, prev, remember=False, save=save)
+        push(key, prev, remember=False, persist=persist)
         st[key]["history"].pop()
-        if save:
-            globals()["save"]()
+        if persist:
+            save()
 
 
 def streamer():
@@ -1119,7 +1119,7 @@ def theme_list():
     return [[n, p, clip(p)] for n, p in items]
 
 
-def save_theme(name, p, *, save=True):
+def save_theme(name, p, *, persist=True):
     name = " ".join(str(name).split())[:40]
     if not name:
         raise ValueError("Give the theme a name.")
@@ -1127,8 +1127,8 @@ def save_theme(name, p, *, save=True):
         if name not in themes and len(themes) >= MAX_THEMES:
             raise ValueError(f"You can keep up to {MAX_THEMES} themes. Delete one first.")
         themes[name] = {k: v for k, v in clean(dict(p)).items() if k != "on"}
-        if save:
-            globals()["save"]()
+        if persist:
+            save()
 
 
 def disconnect_govee():
@@ -1395,11 +1395,11 @@ def _apply_answer(answer, keys):
             if kind in ("set", "apply_theme", "paint", "undo"):
                 for k in targets:
                     if kind == "undo":
-                        undo(k, save=False)
+                        undo(k, persist=False)
                     else:
-                        changed = push(k, dict(value[k] if kind == "paint" else value), save=False) or changed
+                        changed = push(k, dict(value[k] if kind == "paint" else value), persist=False) or changed
             elif kind == "save_theme":
-                save_theme(*value, save=False)
+                save_theme(*value, persist=False)
             elif kind == "rename_theme":  # keeps its place in My themes
                 renamed = [(value[1] if k == value[0] else k, v) for k, v in themes.items()]
                 themes.clear(); themes.update(renamed)
