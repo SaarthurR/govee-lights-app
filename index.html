@@ -149,7 +149,7 @@
   .acts { display:flex; gap:10px 6px; margin:10px 0 2px; flex-wrap:wrap; }
   .acts .chip { background:var(--card); font-weight:500; }
   .composer { display:flex; align-items:center; gap:6px; background:var(--soft); border:1px solid var(--line); border-radius:24px; padding:4px 4px 4px 16px; transition:background-color 150ms, border-color 150ms, box-shadow 150ms; }
-  .composer:focus-within { background:var(--card); border-color:var(--ink); box-shadow:0 0 0 1px var(--ink); }
+  .composer:focus-within { background:var(--card); border-color:var(--ink); }
   .composer input { flex:1; min-width:0; min-height:38px; border:0; padding:0; background:none; font:inherit; color:var(--ink); }
   .composer input:focus-visible { outline:none; }
   .composer input::placeholder { color:var(--mute); }
@@ -267,6 +267,7 @@
   }
   #addLights { margin-right:auto; }
   #askClose { padding:0 8px; }
+  #askClose::after { inset:-6px; }
   #askClose .i { margin:0; }
   /* wide windows: Live and Ask Claude stay in a sticky left column on every page; the page fills the right */
   @media (min-width:1000px) {
@@ -927,7 +928,8 @@ function pickColor(i) {
   $('colors').querySelectorAll('.slot:not(.add)').forEach((b, j) => b.setAttribute('aria-pressed', j === i));
   $('swatches').querySelectorAll('[data-c]').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === toHex(cs[i])));
   $('custom').value = toHex(cs[i]);
-  $('colorHint').textContent = cs.length > 1 ? `Color ${i + 1}: tap a swatch to change it.` : 'Tap a swatch to change the color.';
+  const hint = cs.length > 1 ? `Color ${i + 1}: tap a swatch to change it.` : 'Tap a swatch to change the color.';
+  if ($('colorHint').textContent !== hint) $('colorHint').textContent = hint;
   $('removeColor').hidden = !!anim || cs.length < 2;
 }
 function setColor(c, msg) {  // replace the picked color, in an animation's frames too
