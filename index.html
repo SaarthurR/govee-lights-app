@@ -248,15 +248,21 @@
     #toast { transform:translate(-50%, 0); }
   }
   #addLights { margin-right:auto; }
-  .pane { display:contents; }
-  /* wide windows: every page at once in two columns, so no page tabs */
+  .askhint { display:block; width:100%; border:0; background:none; padding:0; font:inherit; font-size:13px; color:var(--mute); text-align:left; cursor:pointer; margin-top:16px; }
+  @media (hover:hover) { .askhint:hover { color:var(--ink); } }
+  /* wide windows: still one page at a time, each page laid out for the width */
   @media (min-width:1000px) {
-    main { max-width:1400px; padding-inline:32px; }
-    #app { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; align-items:start; }
-    #app .pages { display:none; }
-    .pane { display:flex; flex-direction:column; min-width:0; }
-    #app [data-page][hidden] { display:block !important; }
-    [data-page=schedule] { order:-1; }
+    main { max-width:1200px; padding-inline:32px; }
+    #app .card { padding:20px; margin-bottom:20px; }
+    .pages { width:100%; max-width:480px; margin:0 auto 24px; }
+    .strip { grid-template-columns:repeat(21, minmax(0, 32px)); }
+    #app:has(> [data-page=control]:not([hidden])) { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); column-gap:20px; align-items:start;
+      grid-template-rows:auto auto auto 1fr; grid-template-areas:"nav nav" "empty empty" "live colors" "ask fx"; }
+    #app:has(> [data-page=control]:not([hidden])):has(#askCard[hidden]) { grid-template-areas:"nav nav" "empty empty" "live fx" "colors fx"; }
+    body.basic #app:has(> [data-page=control]:not([hidden])) { grid-template-areas:"nav nav" "empty empty" "live colors" "ask colors"; }
+    [data-page=control] { display:contents; }
+    #pages { grid-area:nav; } #noLights { grid-area:empty; } #liveCard { grid-area:live; } #askCard { grid-area:ask; } #colorCard { grid-area:colors; } #fxCard { grid-area:fx; }
+    #app:has(> [data-page=schedule]:not([hidden])) > .card, [data-page=schedule] { max-width:720px; margin-inline:auto; }
     #account, #setup:not(.welcome) { max-width:640px; margin-inline:auto; }
   }
   @media (max-width:560px) {
@@ -395,12 +401,11 @@
     <button data-p="schedule"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/></svg>Schedule</button>
   </nav>
 
-  <div class="pane">
   <div class="card" id="noLights" hidden>
     <div class="summary">No lights yet<small>Find the Govee lights on your Wi-Fi, then give each one a name.</small></div>
     <button class="btn dark" style="margin-top:14px" onclick="addLights()">Find lights</button>
   </div>
-  <div class="card">
+  <div class="card" id="liveCard">
     <div class="head">
       <h2>Live <span class="sub" data-advanced>· tap bulbs to recolor</span></h2>
       <button class="linkbtn" id="undo" onclick="undo()" title="Go back to the last look" disabled><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo</button>
@@ -437,7 +442,7 @@
     <div class="hint" id="chatHint" hidden>Claude forgets this chat after 5 quiet minutes, so each ask stays cheap.</div>
   </div>
 
-  <div class="card">
+  <div class="card" id="colorCard">
     <h2>Colors</h2>
     <div class="colors" id="colors"></div>
     <div class="swatches" id="swatches" aria-label="Quick colors"></div>
@@ -448,23 +453,23 @@
     </div>
   </div>
 
-  <div class="card" data-advanced>
+  <div class="card" id="fxCard" data-advanced>
     <h2>Effects <span class="sub">· uses your colors</span></h2>
     <div class="row fx" style="gap:16px;margin:-4px 0 12px">
       <div class="ctl grow"><label class="small" for="speed">Speed <b id="speedVal" aria-hidden="true"></b></label><input type="range" id="speed" min="0.1" max="4" step="0.05" value="1"></div>
       <div class="ctl grow"><label class="small" for="amount"><span id="amountLabel">Amount</span> <b id="amountVal" aria-hidden="true"></b></label><input type="range" id="amount" min="0.05" max="1" step="0.01" value="0.5"></div>
     </div>
     <div class="grid" id="effects"></div>
+    <button class="askhint" onclick="askFocus()" hidden>Don't see the look you want? Ask Claude. It can make new effects and animations.</button>
   </div>
   </section>
-  </div>
 
-  <div class="pane">
   <section data-page="themes" hidden>
   <div class="card">
     <h2>My themes</h2>
     <div class="grid" id="mythemes"></div>
     <div class="hint" id="themesHint">No themes yet. Set up a look on Control, then tap “Save as theme”.<span id="themesAsk" hidden> Or ask Claude: “save this as movie night”.</span></div>
+    <button class="askhint" onclick="askFocus()" hidden>Ask Claude to make a theme from scratch.</button>
   </div>
   <div class="card" id="groups"></div>
   <div class="card" id="goveeGroup" hidden>
@@ -498,6 +503,7 @@
     </div>
     </fieldset>
     <div class="hint">An On timer shows your last look unless you pick a theme. The schedule only runs while this computer is on and running the app.</div>
+    <button class="askhint" onclick="askFocus()" hidden>Ask Claude to set up any schedule, like “on at sunset, off at 11 on weekdays”.</button>
     <details><summary>Lights turning on or off by themselves?</summary>
       <p class="hint">Timers and automations made in the Govee Home app keep running alongside this schedule. To find one, open the light in Govee Home and check Timer, then Automation. This app never changes them.</p>
       <p class="hint">While this computer is awake, the app notes when something else turns a light on or off. If it happens at about the same time on two different days, a warning shows under the schedule.</p>
@@ -505,7 +511,6 @@
     </details>
   </div>
   </section>
-  </div>
   </div>
   <dialog id="timerSheet" aria-labelledby="timerTitle"><div class="card">
     <h2 id="timerTitle">Add timer</h2>
@@ -939,7 +944,7 @@ SWATCHES.forEach(([name, c]) => {
   $('swatches').appendChild(b);
 });
 CHIPS.forEach(t => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = t; c.onclick = () => ask(t); $('chips').appendChild(c); });
-function pickTab(k) { light = k; if (document.querySelector('[data-page=themes]').offsetParent) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); shownColors = ''; syncControls(); draw(); }
+function pickTab(k) { light = k; if (!document.querySelector('[data-page=themes]').hidden) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); shownColors = ''; syncControls(); draw(); }
 function showPage(p) {
   document.querySelectorAll('[data-page]').forEach(x => x.hidden = x.dataset.page !== p);
   document.querySelectorAll('#pages button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
@@ -947,6 +952,7 @@ function showPage(p) {
   if (p === 'schedule') loadSchedule();
   if (p === 'themes') loadGoveeScenes();
 }
+function askFocus() { showPage('control'); $('askText').focus(); }
 $('pages').onclick = e => { const b = e.target.closest('button'); if (b) showPage(b.dataset.p); };
 try { if (['control','themes','schedule'].includes(localStorage.page)) showPage(localStorage.page); } catch (_) {}
 // light picker: one tab per saved light, plus "All" when there are 2 or more
@@ -1199,6 +1205,7 @@ async function refresh() {
   $('autoUpdate').checked = state.update?.enabled !== false;
   $('appVersion').textContent = (state.update?.version || state.version).slice(0, 12);
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
+  document.querySelectorAll('.askhint').forEach(b => b.hidden = $('askCard').hidden);
   $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
   $('noLights').hidden = ids().length > 0;
   if (ids().length) welcomeDone = true;
