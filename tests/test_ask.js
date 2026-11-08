@@ -10,7 +10,7 @@ const context = {
   pickTab(k) { context.light = k; },
 };
 vm.createContext(context);
-vm.runInContext(extract('function fixLight()', 'async function toggleAccount()'), context);
+vm.runInContext(extract('function fixLight()', 'async function loadGovee()'), context);
 context.fixLight(); assert.equal(context.light, '');
 context.state.lights.a = {name: 'First'};
 context.fixLight(); assert.equal(context.light, 'a'); // first run after welcome

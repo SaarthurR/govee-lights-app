@@ -964,7 +964,7 @@ def imported_scenes(dev):
             return cached[1]
         device = next((d for d in govee_devices if d["device"].upper() == dev.upper()), None)
         if device is None:
-            return {"scenes": [], "note": "Open Govee account at the bottom of the page and tap Refresh Govee to load this light's scenes."}
+            return {"scenes": [], "note": "Open Settings and tap Refresh Govee to load this light's scenes."}
         scenes, notes = parse_scenes(device.get("capabilities", [])), []
         for endpoint in ("device/scenes", "device/diy-scenes"):
             try:
@@ -1562,7 +1562,7 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"ok": True})
             if self.path == "/api/ask":
                 if not ask_on:
-                    raise ValueError("Ask Claude is off. Turn it on at the bottom of the page.")
+                    raise ValueError("Ask Claude is off. Turn it on in Settings.")
                 keys = ask_keys(body.get("light"))
                 text = str(body.get("text", ""))
                 answer = ask_claude(keys, text)
