@@ -1106,7 +1106,7 @@ function syncControls() {
 function draw() {
   $('paintbar').classList.toggle('on', sel.size > 0);
   $('paintBtn').textContent = 'Paint ' + (sel.size === 1 ? '1 bulb' : sel.size + ' bulbs');
-  const s = cur(), f = s ? s.frame : [];
+  const s = cur(), f = s?.frame || [];  // right after a light switch the reply may not have its bulbs yet
   $('strip').querySelectorAll('.bulb').forEach((b, i) => { b.style.background = s && s.on ? `rgb(${f[i] || [0,0,0]})` : ''; b.classList.toggle('sel', sel.has(i)); });
 }
 function selectEvery(k) { sel.clear(); for (let i = 0; i < N; i += k) sel.add(i); draw(); }
@@ -1420,7 +1420,7 @@ function hideQR() { if (!$('qrBox').classList.contains('on')) return; $('qrBox')
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) { hideQR(); askOpen(false); } });
 let disconnected = false, serverVersion = '';
 async function refresh(quick) {  // quick = only the bulbs; the rest of the page syncs every 4th poll
-  try { state = await (await fetch('/api/state')).json(); draw(); }
+  try { state = await (await fetch('/api/state?light=' + encodeURIComponent(light || 'all'))).json(); draw(); }
   catch (e) { disconnected = true; alertUI('Can’t reach the app. Check this computer is awake and on the same Wi-Fi.', false); return; }
   if (disconnected) { alertUI('', false); disconnected = false; }
   if (quick) return;
