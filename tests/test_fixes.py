@@ -41,6 +41,18 @@ class FixChecks(unittest.TestCase):
         handler.do_POST()
         return result[0]
 
+    def test_state_sends_only_the_shown_lights_bulbs(self):
+        def get(path):
+            h = object.__new__(app.H)
+            h.path, h.client_address, h.headers = path, ("127.0.0.1", 0), {"Host": "localhost"}
+            out = []
+            h.reply = lambda code, body, *a: out.append(body)
+            h.do_GET()
+            return {k: "frame" in v for k, v in out[0]["lights"].items()}
+        self.assertEqual(get("/api/state"), {"a": True, "b": True})  # launcher and old pages get everything
+        self.assertEqual(get("/api/state?light=all"), {"a": True, "b": True})
+        self.assertEqual(get("/api/state?light=b"), {"a": False, "b": True})
+
     def answer(self, actions):
         return app.apply_answer(dict(say="Done", actions=actions), ["a"])
 

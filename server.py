@@ -6,6 +6,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer
 from pathlib import Path
 from urllib import request, error
+from urllib.parse import parse_qs, urlparse
 from launcher import update
 
 APP_VERSION = update.settings()['version']
@@ -1473,10 +1474,11 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, chat_view())
         if self.path == "/api/themes":
             return self.reply(200, theme_list())
-        if self.path == "/api/state":
+        if self.path.split("?")[0] == "/api/state":
+            show = parse_qs(urlparse(self.path).query).get("light", ["all"])[0]  # the page polls 25x/s: send only the shown light's bulbs
             saved = list(lights.items())
             allowed = lan_allowed()
-            return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history"} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d | {"capabilities": capability(k)}
+            return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history" and (x != "frame" or show in ("all", k))} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d | {"capabilities": capability(k)}
                                                for k, d in saved if k in st},
                                     "found": [{"id": k, "sku": d["sku"], "short": short(k)} for k, d in found.items() if k not in lights],
                                     "n": N, "phone": PHONE, "phone_ip": PHONE_IP, "version": VERSION, "claude": CLAUDE, "ask": ask_on, "update": dict(update.settings(), version=APP_VERSION),
