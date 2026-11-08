@@ -122,11 +122,14 @@
   .alert { display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#fdecea; color:var(--bad); border-radius:14px; padding:10px 10px 10px 14px; margin-bottom:14px; font-size:15px; font-weight:500; }
   .alert span { flex:1; min-width:160px; }
   .alert .btn { border-color:#f3c6c0; color:var(--bad); }
-  #footApp { display:contents; }
   .list { margin:8px 0 0; padding-left:20px; font-size:14px; line-height:1.5; }
   details { margin-top:16px; border-top:1px solid var(--line); }
   summary { cursor:pointer; font-size:15px; padding:14px 0 0; }
-  .foot { text-align:center; font-size:14px; color:var(--mute); margin:20px 0 0; display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; }
+  .setrow { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px; font-size:15px; cursor:default; }
+  .setrow + .setrow { border-top:1px solid var(--line); }
+  .setrow > .btn { flex:none; text-decoration:none; }
+  .setrow input[type=checkbox] { width:22px; height:22px; accent-color:var(--ink); }
+  body[data-view=settings] :is(#side, #tabs) { display:none; }
   /* chat: column-reverse keeps the log pinned to the newest bubble, even when it fills while the card is hidden */
   .logbox { display:flex; flex-direction:column-reverse; max-height:min(420px, 55dvh); margin-top:-8px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin;
     -webkit-mask:linear-gradient(transparent, #000 14px); mask:linear-gradient(transparent, #000 14px); }
@@ -159,7 +162,6 @@
   .send::after { content:""; position:absolute; inset:-3px; }  /* 44px hit area */
   .send .i { stroke-width:2.2; }
   .send:disabled { background:var(--line); color:var(--mute); cursor:default; }
-  #chatHint { margin-top:12px; }
   .chips { display:flex; gap:10px 6px; flex-wrap:wrap; margin-top:10px; }
   /* 34px pill, 44px hit area; the 10px row gap keeps wrapped hit areas from overlapping */
   .chip { position:relative; border:1px solid var(--line); background:var(--soft); border-radius:999px; padding:0 12px; min-height:34px; font:inherit; font-size:13px; color:var(--ink); cursor:pointer; white-space:nowrap; }
@@ -229,9 +231,6 @@
   .steps code { display:block; width:fit-content; margin-top:6px; padding:6px 10px; }
   .wstep:not([hidden]) { animation:rise 350ms var(--ease-out) both; }
   .scanning { animation:pulse 1.6s ease-in-out infinite; }
-  .foot a { color:var(--ink); }
-  .locbox { background:var(--soft); border-radius:14px; padding:12px; margin-top:12px; }
-  .locbox .ask input { background:#fff; }
   #qrBox { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; padding:16px; z-index:9; }
   #qrBox.on { display:flex; }
   #qrBox .card { text-align:center; max-width:320px; width:100%; padding:20px; }
@@ -288,7 +287,8 @@
     #askCard .logbox { flex-shrink:1; min-height:0; max-height:none; }
     #askClose { display:none; }
     .strip { grid-template-columns:repeat(14, minmax(0, 1fr)); }
-    #account, #setup:not(.welcome) { max-width:640px; margin-inline:auto; }
+    #setup:not(.welcome) { max-width:640px; margin-inline:auto; }
+    [data-page=settings] { grid-column:1 / -1; width:100%; max-width:640px; margin-inline:auto; }
   }
   /* narrower: Ask Claude is a bar docked at the bottom of every page that opens into a sheet */
   @media (max-width:999px) {
@@ -298,7 +298,6 @@
     #askCard .logbox { flex-shrink:1; min-height:0; max-height:none; }
     #askCard.open { animation:rise 250ms var(--ease-out) both; }
     #askCard.open .composer { order:1; margin-top:12px; }
-    #askCard.open #chatHint { order:2; }
     #askCard:not(.open) { padding:0; border:0; background:none; box-shadow:none; }
     #askCard:not(.open) > :not(.composer) { display:none; }
     #askCard:not(.open) .composer { background:var(--card); border-color:transparent; box-shadow:0 4px 18px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.08); }
@@ -363,19 +362,6 @@
     </div>
   </div>
 
-  <section id="account" class="card" hidden>
-    <h2>Govee account <span class="sub">· optional</span></h2>
-    <p class="hint" style="margin:0 0 12px">Reads light names and scene names from Govee. It never changes anything in Govee Home or on a light.</p>
-    <form id="goveeForm">
-      <label class="small" for="goveeKey">Govee API key</label>
-      <input class="field" style="width:100%;margin:8px 0" id="goveeKey" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste API key" aria-describedby="keyHint">
-      <p class="hint" id="keyHint">Get a key in Govee Home: Profile → Settings → Apply for API key. It is saved only in state.json on this computer and sent only to Govee. Anyone who can open that file can read it.</p>
-      <button class="btn dark" id="connectGovee">Connect Govee account</button>
-      <button type="button" class="btn" id="disconnectGovee" onclick="disconnectAccount()" hidden>Disconnect Govee</button>
-    </form>
-    <p class="hint" id="goveeStatus" role="status"></p>
-    <button class="btn" onclick="toggleAccount()">Done</button>
-  </section>
   <section id="setup" hidden>
   <div class="wtop"><button class="linkbtn" id="wBack" onclick="step(-1)">Back</button><div class="dots" id="dots" role="img"></div></div>
   <div class="wstep" data-step="hello">
@@ -439,7 +425,7 @@
   </div>
   <div class="wstep" data-step="feedback">
     <h1 class="wtitle">This app is new</h1>
-    <p class="wline">It may have bugs. If something goes wrong, tap <b>Send feedback</b> at the bottom of the page. It opens a GitHub issue with your app version and light models, never your names or addresses.</p>
+    <p class="wline">It may have bugs. If something goes wrong, tap <b>Send feedback</b> in Settings. It opens a GitHub issue with your app version and light models, never your names or addresses.</p>
     <button class="btn dark wgo" onclick="step(1)">Got it</button>
   </div>
   <div class="wstep" data-step="done">
@@ -454,6 +440,7 @@
     <button data-p="control" class="on"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/></svg>Control</button>
     <button data-p="themes"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4c.6 4.3 2.7 6.4 7 7-4.3.6-6.4 2.7-7 7-.6-4.3-2.7-6.4-7-7 4.3-.6 6.4-2.7 7-7z"/></svg>Themes</button>
     <button data-p="schedule"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/></svg>Schedule</button>
+    <button data-p="settings"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></svg>Settings</button>
   </nav>
 
   <div class="card" id="noLights" hidden>
@@ -463,12 +450,12 @@
   <div id="side">
   <div class="card" id="liveCard">
     <div class="head">
-      <h2>Live <span class="sub" data-advanced>· tap bulbs to recolor</span></h2>
+      <h2>Live</h2>
       <button class="linkbtn" id="undo" onclick="undo()" title="Go back to the last look" disabled><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo</button>
     </div>
     <div class="alert" id="alert" role="alert" hidden><span id="alertText"></span><button class="btn" id="alertFix" onclick="reconnect(this)">Reconnect</button></div>
     <p class="hint" id="allNote" style="margin:0 0 4px" hidden></p>
-    <p class="hint" id="basicNote" hidden>This light gets on/off, brightness, color and schedules. Per-bulb effects are only on supported strips.</p>
+    <p class="hint" id="basicNote" hidden>This light shows one color at a time.</p>
     <div class="controls">
       <div class="ctl"><label class="small" for="power" id="powerLabel">Power</label><button class="power" id="power" aria-label="Power"></button></div>
       <div class="ctl grow"><label class="small" for="bright">Brightness <b id="brightVal" aria-hidden="true">100%</b></label><input type="range" id="bright" min="1" max="100" value="100"></div>
@@ -478,8 +465,7 @@
       <input type="color" id="pick" value="#ffffff" aria-label="Paint color">
       <button class="btn dark" id="paintBtn" onclick="paint()">Paint</button>
       <button class="btn" onclick="sel.clear();draw()">Cancel</button>
-      <div class="row sels"><button class="linkbtn" onclick="selectEvery(2)">Every 2nd</button><button class="linkbtn" onclick="selectEvery(1)">All</button>
-        <span class="hint">The lights stop moving and show exactly this.</span></div>
+      <div class="row sels"><button class="linkbtn" onclick="selectEvery(2)">Every 2nd</button><button class="linkbtn" onclick="selectEvery(1)">All</button></div>
     </div>
   </div>
 
@@ -493,7 +479,6 @@
       <button class="send" id="askBtn" aria-label="Send"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
     </form>
     <div class="chips" id="chips"></div>
-    <div class="hint" id="chatHint" hidden>Claude forgets this chat after 20 quiet minutes, so each ask stays cheap.</div>
   </div>
   </div>
 
@@ -511,7 +496,7 @@
   </div>
 
   <div class="card" id="fxCard" data-advanced>
-    <h2>Effects <span class="sub">· uses your colors</span></h2>
+    <h2>Effects</h2>
     <div class="row fx" style="gap:16px;margin:-4px 0 12px">
       <div class="ctl grow"><label class="small" for="speed">Speed <b id="speedVal" aria-hidden="true"></b></label><input type="range" id="speed" min="0.1" max="4" step="0.05" value="1"></div>
       <div class="ctl grow"><label class="small" for="amount"><span id="amountLabel">Amount</span> <b id="amountVal" aria-hidden="true"></b></label><input type="range" id="amount" min="0.05" max="1" step="0.01" value="0.5"></div>
@@ -524,12 +509,12 @@
   <div class="card">
     <div class="head"><h2>My themes</h2><button class="linkbtn" id="themesEdit" hidden>Edit</button></div>
     <div class="grid" id="mythemes"></div>
-    <div class="hint" id="themesHint">No themes yet. Set up a look on Control, then tap “Save as theme”.<span id="themesAsk" hidden> Or ask Claude: “save this as movie night”.</span></div>
+    <div class="hint" id="themesHint">No themes yet. Tap “Save as theme” on Control.<span id="themesAsk" hidden> Or ask Claude: “save this as movie night”.</span></div>
   </div>
   <div class="card" id="groups"></div>
   <div class="card" id="goveeGroup" hidden>
     <h2>Govee scenes</h2>
-    <p class="hint" style="margin:0">Read from your Govee account. To play or edit a scene, use the Govee Home app.</p>
+    <p class="hint" style="margin:0">Play these in the Govee Home app.</p>
     <p class="hint" id="goveeSceneNote"></p>
     <ul class="list" id="goveeScenes"></ul>
   </div>
@@ -539,28 +524,54 @@
   <div class="card">
     <h2>Schedule <span class="sub" id="schedFor"></span></h2>
     <label class="row" for="useSched" style="justify-content:space-between;flex-wrap:nowrap;min-height:44px;cursor:pointer;font-weight:500">Use this app's schedule<button class="power" id="useSched" aria-describedby="schedOffNote"></button></label>
-    <p class="hint" id="schedOffNote" style="margin-top:4px" hidden>Off. Use the timers in the Govee Home app instead. This app won't turn your lights on or off on its own.</p>
+    <p class="hint" id="schedOffNote" style="margin-top:4px" hidden>Off. This app won't turn your lights on or off.</p>
     <fieldset id="schedBody">
     <div id="outsideWarnings" role="status"></div>
     <div id="timers"></div>
     <button class="btn dark" id="addTimer" style="margin-top:12px;width:100%" onclick="openTimer()">+ Add timer</button>
     <p class="hint" id="timerCap" hidden>Up to 10 timers per light. Delete one to add another.</p>
-    <div class="row" id="sunRow" style="margin-top:12px;gap:8px" hidden><span class="hint" id="sunText" style="margin:0"></span><button class="linkbtn" onclick="toggleLoc()">Change location</button></div>
-    <div class="locbox" id="locBox" hidden>
-      <div id="locNote" style="font-size:15px">To use sunset in a timer, add your location.</div>
-      <button class="btn" id="geoBtn" style="margin-top:10px;width:100%" onclick="useMyLocation()" hidden>Use my location</button>
-      <form class="ask" id="locForm" style="margin-top:10px;flex-wrap:wrap">
-        <label class="small" for="loc" style="width:100%">Latitude, longitude</label>
-        <input id="loc" placeholder="51.50, -0.13" autocomplete="off" aria-describedby="locHint">
+  </div>
+  </section>
+  <section data-page="settings" hidden>
+  <div class="card">
+    <h2>Lights</h2>
+    <div class="setrow"><span>Add, rename or remove</span><button class="btn" onclick="addLights()">Manage lights</button></div>
+    <div class="setrow"><span>Not responding?</span><button class="btn" onclick="reconnect(this)">Reconnect</button></div>
+  </div>
+  <div class="card">
+    <h2>Location</h2>
+    <div class="setrow"><span id="sunText">Not set. Sunset timers need it.</span><button class="btn" id="geoBtn" onclick="useMyLocation()" hidden>Use my location</button></div>
+    <details id="locBox"><summary>Type it in</summary>
+      <form class="ask" id="locForm" style="margin-top:10px">
+        <input id="loc" placeholder="37.77, -122.42" autocomplete="off" aria-label="Latitude, longitude" aria-describedby="locHint">
         <button class="btn dark">Save</button>
       </form>
-      <div class="hint" id="locHint">In a map app, press and hold your home, then copy the two numbers it shows. Only this computer keeps it, rounded to about 1 km.</div>
-    </div>
-    </fieldset>
-    <div class="hint">An On timer shows your last look unless you pick a theme. The schedule only runs while this computer is on and running the app.</div>
+      <p class="hint" id="locHint">In a map app, press and hold your home, then copy the two numbers.</p>
+    </details>
+  </div>
+  <div class="card">
+    <h2>Ask Claude</h2>
+    <div class="setrow"><span id="askState">Make looks and timers by typing</span><button class="btn" id="askUse" onclick="useAsk(!state.ask)" hidden></button></div>
+    <p class="hint" id="askGet" hidden>Needs <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a> on this computer.</p>
+  </div>
+  <div class="card" id="account">
+    <h2>Govee account <span class="sub">· optional</span></h2>
+    <p class="hint" style="margin:0 0 12px">Reads light and scene names. Never changes anything.</p>
+    <form id="goveeForm">
+      <label class="small" for="goveeKey">Govee API key</label>
+      <input class="field" style="width:100%;margin:8px 0" id="goveeKey" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste API key" aria-describedby="keyHint">
+      <p class="hint" id="keyHint">In Govee Home: Profile → Settings → Apply for API key. Kept only on this computer.</p>
+      <div class="row"><button class="btn dark" id="connectGovee">Connect Govee account</button>
+      <button type="button" class="btn" id="disconnectGovee" onclick="disconnectAccount()" hidden>Disconnect Govee</button></div>
+    </form>
+    <p class="hint" id="goveeStatus" role="status"></p>
+  </div>
+  <div class="card">
+    <h2>App</h2>
+    <label class="setrow" for="autoUpdate"><span>Auto-update <span class="small" id="appVersion"></span></span><input type="checkbox" id="autoUpdate" checked onchange="post('/api/update', {enabled:this.checked})"></label>
+    <div class="setrow"><span>Found a bug?</span><a class="btn" id="feedback" href="https://github.com/SaarthurR/govee-lights-app/issues/new?labels=feedback" target="_blank" rel="noopener noreferrer">Send feedback</a></div>
     <details><summary>Lights turning on or off by themselves?</summary>
-      <p class="hint">Timers and automations made in the Govee Home app keep running alongside this schedule. To find one, open the light in Govee Home and check Timer, then Automation. This app never changes them.</p>
-      <p class="hint">While this computer is awake, the app notes when something else turns a light on or off. If it happens at about the same time on two different days, a warning shows under the schedule.</p>
+      <p class="hint">Timers and automations in the Govee Home app keep running. Check Timer and Automation for that light in Govee Home.</p>
       <ul class="list" id="outsideEvents"></ul>
     </details>
   </div>
@@ -575,7 +586,7 @@
     <h2 id="timerTitle" tabindex="-1" autofocus>Add timer</h2>
     <div class="seg" id="actSeg"><button data-v="on">Turn on</button><button data-v="off">Turn off</button></div>
     <div class="seg" id="whenSeg" style="margin-top:12px"><button data-v="time">At a time</button><button data-v="sunset">At sunset</button></div>
-    <p class="hint" id="noSun">To use sunset, add your location under the timers.</p>
+    <p class="hint" id="noSun">Sunset needs your location. <button type="button" class="linkbtn" onclick="$('timerSheet').close(); showPage('settings')">Set it in Settings</button></p>
     <div class="wheel" id="timeWheel" style="margin-top:12px" role="group" aria-label="Time"></div>
     <div class="ctl" id="offsetRow" style="margin-top:8px"><label class="small" for="offset"><b id="offsetVal" aria-hidden="true"></b></label><input type="range" id="offset" min="-120" max="120" step="5" value="0"></div>
     <div id="lookRow" style="margin-top:12px"><label class="small" for="timerLook" style="margin-bottom:6px">Look</label><select class="field" id="timerLook"></select></div>
@@ -590,12 +601,6 @@
       <button class="btn dark" onclick="saveTimer()">Save</button>
     </div>
   </div></dialog>
-  <p class="foot"><span id="footApp">Lights not responding? <button class="linkbtn" onclick="reconnect(this)" title="Finds the lights again, for example after a power cut or a router change">Reconnect</button>
-    <button class="linkbtn" id="askUse" onclick="useAsk(!state.ask)" hidden></button>
-    <span id="askGet" style="width:100%;order:1" hidden>Ask Claude needs <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a> on this computer.</span></span>
-    <label><input type="checkbox" id="autoUpdate" checked onchange="post('/api/update', {enabled:this.checked})"> Auto-update <span id="appVersion" class="small"></span></label>
-    <button class="linkbtn" id="settingsBtn" onclick="toggleAccount()">Govee account</button>
-    <a id="feedback" class="small" href="https://github.com/SaarthurR/govee-lights-app/issues/new?labels=feedback" target="_blank" rel="noopener noreferrer">Send feedback</a></p>
 </main>
 <script>
 let govee = {connected:false, devices:[]}, sceneRead = 0;
@@ -752,7 +757,7 @@ function relDay(at) {
   return 'on ' + at.toLocaleDateString('en', {weekday: 'long'});
 }
 function nextWords(sc) {
-  if (!sc.timers.length) return 'No timers yet. The lights only change when you change them.';
+  if (!sc.timers.length) return 'No timers yet.';
   const t = sc.next && sc.timers.find(x => x.id === sc.next.id);
   if (!t) return 'Nothing coming up. All timers are off.';
   return `Next: ${t.action === 'on' ? 'On' : 'Off'} at ${fmt(sc.next.at.slice(11))} ${relDay(new Date(sc.next.at))}${t.theme && hasLook(t.theme) ? ' with ' + t.theme : ''}`;
@@ -791,9 +796,7 @@ async function loadSchedule() {
     const d = await (await fetch('/api/schedule')).json();
     const key = JSON.stringify([light, d]); if (key === schedKey) return; schedKey = key;  // unchanged: keep the rows and focus
     drawOutside(d.outside || {}); sched = d; sunsetToday = d.sunset;
-    $('sunRow').hidden = !d.sunset; $('sunText').textContent = d.sunset ? `Sunset today is ${fmt(d.sunset)}.` : '';
-    if (!d.sunset) $('locBox').hidden = false;
-    if (d.location && !$('loc').value) $('loc').value = d.location.join(', ');
+    $('sunText').textContent = d.location ? `Saved · sunset today ${d.sunset ? fmt(d.sunset) : 'none'}` : 'Not set. Sunset timers need it.';
     const sc = d[lead()]; if (!sc) return;
     $('useSched').classList.toggle('on', sc.use); $('useSched').setAttribute('aria-pressed', sc.use);
     $('schedBody').disabled = !sc.use; $('schedOffNote').hidden = sc.use;
@@ -801,16 +804,16 @@ async function loadSchedule() {
     drawTimers();
   } catch (e) {}
 }
-const toggleLoc = () => { $('locBox').hidden = !$('locBox').hidden; if (!$('locBox').hidden) $('loc').focus(); };
 $('geoBtn').hidden = !(window.isSecureContext && navigator.geolocation);  // browsers only share location over https or localhost
+$('locBox').open = $('geoBtn').hidden;
 async function saveLocation(lat, lon) {
   const j = await post('/api/location', {lat, lon}, 'Location saved. Sunset times are ready');
-  if (j && j.ok) { $('locBox').hidden = true; loadSchedule(); }
+  if (j && j.ok) { $('locBox').open = false; $('loc').value = ''; loadSchedule(); }
 }
 function useMyLocation() {
   $('geoBtn').disabled = true;
   navigator.geolocation.getCurrentPosition(p => { $('geoBtn').disabled = false; saveLocation(p.coords.latitude, p.coords.longitude); },
-    () => { $('geoBtn').disabled = false; toast('Unable to get your location. Type it in below instead.', true); $('loc').focus(); }, {timeout: 15000});
+    () => { $('geoBtn').disabled = false; toast('Unable to get your location. Type it in instead.', true); $('locBox').open = true; $('loc').focus(); }, {timeout: 15000});
 }
 $('locForm').onsubmit = e => {
   e.preventDefault();
@@ -1089,6 +1092,7 @@ SWATCHES.forEach(([name, c]) => {
   $('swatches').appendChild(b);
 });
 function drawChips(p) {  // a chip ending in … fills the box for you to finish; the others ask right away
+  if (!CHIPS[p]) return;  // Settings has no Ask Claude
   $('chips').replaceChildren(...CHIPS[p].map(t => {
     const c = document.createElement('button'); c.className = 'chip'; c.textContent = t;
     c.onclick = () => { if (!t.endsWith('…')) return ask(t); const i = $('askText'); i.value = t.slice(0, -1); i.focus(); i.setSelectionRange(99, 99); };
@@ -1105,12 +1109,12 @@ function showPage(p) {
   document.querySelectorAll('[data-page]').forEach(x => x.hidden = x.dataset.page !== p);
   document.querySelectorAll('#pages button').forEach(b => b.classList.toggle('on', b.dataset.p === p));
   try { localStorage.page = p; } catch (_) {}
-  if (p === 'schedule') loadSchedule();
+  if (p === 'schedule' || p === 'settings') loadSchedule();
   if (p === 'themes') loadGoveeScenes();
 }
 $('pages').onclick = e => { const b = e.target.closest('button'); if (b) showPage(b.dataset.p); };
 let savedPage; try { savedPage = localStorage.page; } catch (_) {}
-showPage(['themes', 'schedule'].includes(savedPage) ? savedPage : 'control');
+showPage(['themes', 'schedule', 'settings'].includes(savedPage) ? savedPage : 'control');
 // below 1000px Ask Claude is a docked bar: focusing it opens the chat sheet; the dimmed page behind closes it
 const askOpen = on => $('askCard').classList.toggle('open', on);
 $('askText').addEventListener('focus', () => askOpen(true));
@@ -1136,16 +1140,12 @@ function fixLight() {  // keep the picked light valid when lights are added, ren
   let saved; try { saved = localStorage.light; } catch (_) {}
   pickTab(ok(saved) ? saved : ids()[0]);
 }
-async function toggleAccount() {
-  $('account').hidden = !$('account').hidden;
-  if (!$('account').hidden) { await loadGovee(); $('account').scrollIntoView({block:'start'}); }
-}
 async function loadGovee() {
   try {
     govee = await (await fetch('/api/govee')).json();
     $('disconnectGovee').hidden = !govee.connected; $('goveeGroup').hidden = !govee.connected;
     $('connectGovee').textContent = govee.connected ? 'Refresh Govee' : 'Connect Govee account';
-    $('goveeStatus').textContent = govee.connected ? 'Connected. Leave the key blank to keep it. Refresh to read device names again.' : 'Not connected. The app works without a Govee API key.';
+    $('goveeStatus').textContent = govee.connected ? 'Connected.' : '';
     if (setupOpen) drawSetup();
   } catch (_) { $('goveeStatus').textContent = OFFLINE; }
 }
@@ -1232,7 +1232,7 @@ function showSetup() {
   document.querySelectorAll('.wstep').forEach(s => s.hidden = s.dataset.step !== (w || 'find'));
   $('wBack').parentElement.hidden = !w; $('wBack').style.visibility = wat ? '' : 'hidden';
   if (w) { $('dots').replaceChildren(...wsteps.map((_, i) => Object.assign(document.createElement('span'), {className: i === wat ? 'on' : ''}))); $('dots').setAttribute('aria-label', `Step ${wat + 1} of ${wsteps.length}`); $('dots').hidden = wsteps.length < 2; }
-  $('app').hidden = $('footApp').hidden = $('addLights').hidden = setupOpen; $('setupDone').hidden = w === 'network' || !!w && ids().length > 0;
+  $('app').hidden = $('addLights').hidden = setupOpen; $('setupDone').hidden = w === 'network' || !!w && ids().length > 0;
   $('setupDone').textContent = ids().length ? 'Done' : 'Use without lights'; drawTabs();
   if (w === 'network') drawLan();
   if (setupOpen) scrollTo(0, 0);
@@ -1327,7 +1327,7 @@ $('amount').onchange = () => set({amount: +$('amount').value}, `${$('amountLabel
 let chatTimer;
 function bubble(who, text, isNew) {
   const d = document.createElement('div'); d.className = `msg ${who}${isNew ? ' new' : ''}`; d.textContent = text;
-  $('log').appendChild(d); $('log').hidden = $('newChat').hidden = $('chatHint').hidden = false; return d;
+  $('log').appendChild(d); $('log').hidden = $('newChat').hidden = false; return d;
 }
 function actions(b) {  // only on Claude's latest reply that changed the look
   const a = document.createElement('div'); a.className = 'acts';
@@ -1338,7 +1338,7 @@ let chatKey = '', asking = false;
 function drawChat(c) {  // never while an ask is out: its bubbles would be wiped and the answer land nowhere
   if (asking) return;
   const key = JSON.stringify(c.turns); if (key === chatKey) return expireIn(c.expires_in); chatKey = key;
-  $('log').innerHTML = ''; $('log').hidden = $('newChat').hidden = $('chatHint').hidden = !c.turns.length;
+  $('log').innerHTML = ''; $('log').hidden = $('newChat').hidden = !c.turns.length;
   c.turns.forEach(([me, say, changed], i) => { bubble('me', me); const b = bubble('ai', say); if (changed && i === c.turns.length - 1) actions(b); });
   $('log').scrollTop = $('log').scrollHeight; expireIn(c.expires_in);
 }
@@ -1388,7 +1388,7 @@ async function refresh(quick) {  // quick = only the bulbs; the rest of the page
   $('autoUpdate').checked = state.update?.enabled !== false;
   $('appVersion').textContent = (state.update?.version || state.version).slice(0, 12);
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
-  $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off Ask Claude' : 'Turn on Ask Claude'; $('askGet').hidden = state.claude;
+  $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off' : 'Turn on'; $('askGet').hidden = state.claude;
   $('noLights').hidden = ids().length > 0;
   $('liveCard').hidden = $('colorCard').hidden = $('fxCard').hidden = !ids().length;  // no light to send them to
   if (ids().length) welcomeDone = true;
@@ -1407,7 +1407,7 @@ async function poll() {
   setTimeout(poll, document.hidden ? 2000 : 40);
 }
 function refreshLists() {  // other phones and Claude change these too; each redraws only when its data changed
-  if (page === 'schedule') loadSchedule();
+  if (page === 'schedule' || page === 'settings') loadSchedule();
   if (page !== 'control') loadThemes().catch(() => {});  // the timer sheet lists themes too
   if (!$('askCard').hidden) fetch('/api/chat').then(r => r.json()).then(drawChat).catch(() => {});
 }

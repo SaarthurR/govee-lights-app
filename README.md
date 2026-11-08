@@ -28,7 +28,7 @@ Then **open Govee Lights from Launchpad** (Mac), **the Start Menu** (Windows) or
 
 **On a Mac, click Allow** when macOS asks to let Govee Lights find devices on your local network. Without it the app cannot reach your lights. If the installer says the native app could not be built, run `xcode-select --install` and install again.
 
-The installer downloads this repo into `govee-lights` in your home folder, adds the app, and starts Lights at login (no admin needed). Run it again to update; your lights, themes and timers are kept. Lights also updates itself from `main` about once a day; turn **Auto-update** off at the bottom of the page to stop that. Read the scripts first if you like: [install.sh](install.sh), [install.ps1](install.ps1).
+The installer downloads this repo into `govee-lights` in your home folder, adds the app, and starts Lights at login (no admin needed). Run it again to update; your lights, themes and timers are kept. Lights also updates itself from `main` about once a day; turn **Auto-update** off in **Settings** to stop that. Read the scripts first if you like: [install.sh](install.sh), [install.ps1](install.ps1).
 
 ## Set up
 
@@ -46,7 +46,7 @@ Add, rename or remove lights later with **Manage lights** at the top of the page
 | Should work | H619A | Per-bulb effects (20 color slots) from [OpenRGB's model table](https://github.com/CalcProgrammer1/OpenRGB/blob/master/Controllers/GoveeController/RGBController_Govee.cpp#L38-L58); not tested on real hardware. |
 | Basic | Other models with LAN Control | On/off, brightness, one solid color and timers. |
 
-Govee's [LAN guide](https://app-h5.govee.com/user-manual/wlan-guide) lists most models with LAN Control. Please [open an issue](https://github.com/SaarthurR/govee-lights-app/issues) with your model and whether it worked, or use **Send feedback** at the bottom of the page.
+Govee's [LAN guide](https://app-h5.govee.com/user-manual/wlan-guide) lists most models with LAN Control. Please [open an issue](https://github.com/SaarthurR/govee-lights-app/issues) with your model and whether it worked, or use **Send feedback** in **Settings**.
 
 ## Uninstall
 
@@ -66,7 +66,7 @@ Windows (keeps state; use `-Purge` to delete it too):
 
 **No lights found.** Check LAN Control is on, and that the light and computer share a Wi-Fi network (not a guest network). Some routers block devices from seeing each other; turn off "client isolation" or "AP isolation". Allow Python through your firewall. On a Mac, turn on Govee Lights in System Settings → Privacy & Security → Local Network. Then click **Scan again**.
 
-**Lights stuck or not changing.** Click **Reconnect** in **Manage lights** or at the bottom of the page, for example after a power cut. Run only one copy of the app.
+**Lights stuck or not changing.** Click **Reconnect** in **Settings**, for example after a power cut. Run only one copy of the app.
 
 **Lights turn on or off by themselves.** Timers made in Govee Home keep running, and other apps cannot read them. Check Timer and Automation in Govee Home, or turn off **Use this app's schedule** for that light.
 
