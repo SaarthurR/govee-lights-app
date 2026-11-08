@@ -359,41 +359,122 @@ def save():
 
 
 def load():
+    bad = False
+    def keep_bad():
+        backup = SAVE.with_name(SAVE.name + ".bad")
+        if not backup.exists():
+            shutil.copy2(SAVE, backup)
+            backup.chmod(0o600)
     try:
         data = json.loads(SAVE.read_text())
-    except (OSError, ValueError):
+    except OSError:
         return
+    except ValueError:
+        keep_bad()
+        return
+    if not isinstance(data, dict):
+        keep_bad()
+        return
+    def section(name):
+        nonlocal bad
+        value = data.get(name, {})
+        if not isinstance(value, dict):
+            bad = True
+            return {}
+        return value
     global location, govee_key, ask_on, lan_asked
-    govee_key = str(data.get("_govee_key") or "")
+    govee_key = data.get("_govee_key", "")
+    if not isinstance(govee_key, str):
+        bad, govee_key = True, ""
+    for name in ("_ask", "_lan_asked"):
+        if name in data and type(data[name]) is not bool:
+            bad = True
     ask_on = data.get("_ask") is not False
     lan_asked = data.get("_lan_asked") is True
-    outside.update(data.get("_outside") or {})
-    paused.update(data.get("_paused") or [])
-    for dev, v in (data.get("_lights") or {}).items():
-        add_light(str(dev), str(v.get("name") or "Light")[:MAX_NAME], str(v.get("sku", "")), str(v.get("ip", "")))
-    try:
-        location = clean_location(*data["_location"])
-    except (KeyError, TypeError, ValueError):
-        pass
-    for k, v in (data.get("_schedule") or {}).items():
-        if k in schedule:
-            schedule[k] = migrate(v)
-    for name, p in (data.get("_themes") or {}).items():
+    for dev, v in section("_lights").items():
+        if (not isinstance(dev, str) or not 0 < len(dev) <= 64 or not isinstance(v, dict) or
+            any(not isinstance(v.get(x, ""), str) for x in ("name", "sku", "ip"))):
+            bad = True
+            continue
+        add_light(dev, (v.get("name") or "Light")[:MAX_NAME], v.get("sku", ""), v.get("ip", ""))
+    if data.get("_location") is not None:
         try:
-            themes[str(name)[:40]] = clean(dict(p))
-        except (ValueError, TypeError):
-            pass  # skip a broken theme, keep the rest
-    for k, d in data.items():
-        if k in st:
-            st[k].update({x: v for x, v in d.get("look", {}).items() if x in KEYS})
-            history = d.get("history", [])
+            location = clean_location(*data["_location"])
+        except (TypeError, ValueError):
+            bad = True
+    for k, v in section("_schedule").items():
+        if k in schedule:
             try:
-                st[k].update(light_settings(k, look(st[k])))
-            except ValueError:  # an older save may have treated this model as an 84-slot strip
-                previous = look(st[k])
-                st[k].update(light_settings(k, dict(previous, effect="solid", animation=None)))
-                history = history + [previous]  # keep the original animation in the saved history
-            st[k]["history"] = history[-HISTORY:]
+                if (not isinstance(v, dict) or type(v.get("use", True)) is not bool or
+                    "timers" in v and not isinstance(v["timers"], list)):
+                    raise ValueError("Invalid saved schedule")
+                schedule[k] = migrate(v)
+                if "timers" in v and len(schedule[k]["timers"]) != len(v["timers"]):
+                    bad = True
+            except (ValueError, TypeError, AttributeError):
+                bad = True
+    for name, p in section("_themes").items():
+        try:
+            if not isinstance(p, dict):
+                raise ValueError("Invalid saved theme")
+            themes[str(name)[:40]] = clean(p)
+        except (ValueError, TypeError, OverflowError):
+            bad = True
+    for k in st:
+        if k not in data:
+            continue
+        d = data[k]
+        if not isinstance(d, dict):
+            bad = True
+            continue
+        history = d.get("history", [])
+        if not isinstance(history, list):
+            bad, history = True, []
+        valid = []
+        for h in history[-HISTORY:]:
+            try:
+                if not isinstance(h, dict):
+                    raise ValueError("Invalid saved history")
+                valid.append(clean(dict(DEFAULT, **h)))
+            except (ValueError, TypeError, OverflowError):
+                bad = True
+        try:
+            raw = d.get("look", {})
+            if not isinstance(raw, dict):
+                raise ValueError("Invalid saved look")
+            previous = clean(dict(DEFAULT, **raw))
+            try:
+                current = light_settings(k, previous)
+            except ValueError:  # older saves may have treated a smaller strip as an 84-slot strip
+                current = light_settings(k, dict(previous, effect="solid", animation=None))
+                valid.append(previous)
+            st[k].update(current)
+        except (ValueError, TypeError, OverflowError):
+            bad = True
+        st[k]["history"] = valid[-HISTORY:]
+    for k, events in section("_outside").items():
+        if k not in st:
+            continue
+        if not isinstance(events, list):
+            bad = True
+            continue
+        valid = []
+        for event in events[-500:]:
+            try:
+                if not isinstance(event, dict) or type(event.get("on")) is not bool:
+                    raise ValueError("Invalid power event")
+                dt.datetime.fromisoformat(event["at"])
+                valid.append({"at": event["at"], "on": event["on"]})
+            except (KeyError, ValueError, TypeError):
+                bad = True
+        outside[k] = valid
+    saved_paused = data.get("_paused", [])
+    if not isinstance(saved_paused, list) or any(not isinstance(k, str) for k in saved_paused):
+        bad = True
+    else:
+        paused.update(k for k in saved_paused if k in st)
+    if bad:
+        keep_bad()
 
 
 def clean(p, n=N):
@@ -409,7 +490,7 @@ def clean(p, n=N):
             raise ValueError("colors must be a list of [r,g,b]")
         p["colors"] = cs
     if p.get("bulbs") is not None:
-        b = [[max(0, min(255, int(v))) for v in c][:3] for c in p["bulbs"]][:n]
+        b = rgb_list(p["bulbs"], N)[:n]
         p["bulbs"] = b + [[0, 0, 0]] * (n - len(b))
     for k in ("speed", "amount"):
         if k in p:
@@ -417,7 +498,8 @@ def clean(p, n=N):
     if "brightness" in p:
         p["brightness"] = max(1, min(100, int(p["brightness"])))
     if "on" in p:
-        p["on"] = bool(p["on"])
+        if type(p["on"]) is not bool:
+            raise ValueError("Power must be true or false.")
     return p
 
 
