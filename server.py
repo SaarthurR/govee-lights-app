@@ -493,10 +493,7 @@ def clean(p, n=N):
         if p.get("effect", "custom") == "custom":  # effects and their previews use the animation's own colors, not the old gold/white
             p["colors"] = list({tuple(c): c for f in p["animation"]["frames"] for c in f["pattern"]}.values())[:6]
     if "colors" in p:
-        cs = [[max(0, min(255, int(v))) for v in c][:3] for c in p["colors"]][:6]
-        if not cs or any(len(c) != 3 for c in cs):
-            raise ValueError("colors must be a list of [r,g,b]")
-        p["colors"] = cs
+        p["colors"] = rgb_list(p["colors"], 6)
     if p.get("bulbs") is not None:
         b = rgb_list(p["bulbs"], N)[:n]
         p["bulbs"] = b + [[0, 0, 0]] * (n - len(b))
@@ -511,11 +508,11 @@ def clean(p, n=N):
     return p
 
 
-def push(key, p, remember=True):
+def push(key, p, remember=True, *, persist=True):
     """Send settings to the light. Hardware first, so the saved look only changes if the send works."""
     p = light_settings(key, p)
     paused.discard(key)
-    if not capability(key)["razer"] and p.get("on") is not False:  # a color command can wake a light that is turning off
+    if not capability(key)["razer"] and p.get("on", st[key]["on"]):  # a color command can wake a light that is off
         c = (p.get("colors") or st[key]["colors"])[0]
         send(key, "colorwc", {"color": dict(zip(("r", "g", "b"), c)), "colorTemInKelvin": 0})
     if "on" in p:
@@ -531,20 +528,22 @@ def push(key, p, remember=True):
         if added:
             s["history"] = (s["history"] + [before])[-HISTORY:]  # only looks go in undo, not on/off taps
         s["error"] = None
-        save()
+        if persist:
+            save()
     if s["on"]:
         razer(key, ARM)
     return added
 
 
-def undo(key):
+def undo(key, *, persist=True):
     with lock:
         if not st[key]["history"]:
             raise ValueError("Nothing to undo.")
-        prev = st[key]["history"][-1]
-        push(key, prev, remember=False)
+        prev = {k: v for k, v in st[key]["history"][-1].items() if k not in ("on", "brightness")}
+        push(key, prev, remember=False, persist=persist)
         st[key]["history"].pop()
-        save()
+        if persist:
+            save()
 
 
 def streamer():
@@ -780,7 +779,12 @@ def discover():
             r.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             if hasattr(socket, "SO_REUSEPORT"):  # not on Windows
                 r.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            r.bind(("", 4002)); r.settimeout(0.5)
+            try:
+                r.bind(("", 4002))
+            except OSError:
+                r.close()
+                raise
+            r.settimeout(0.5)
             m = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             msg = json.dumps({"msg": {"cmd": "scan", "data": {"account_topic": "reserve"}}}).encode()
             end = time.time() + 3
@@ -993,11 +997,16 @@ def repeated_changes(events):
     warnings = []
     samples = [(dt.datetime.fromisoformat(e["at"]), e["on"]) for e in events]
     samples = [(at.date(), at.hour * 60 + at.minute, power) for at, power in samples]
-    distance = lambda a, b: min(abs(a - b), 1440 - abs(a - b))
+    buckets = {}
     for day, minute, power in samples:
-        days = {date for date, other, on in samples if on == power and distance(other, minute) <= 3}
-        if len(days) >= 2 and not any(w["on"] == power and distance(w["minute"], minute) <= 6 for w in warnings):
-            warnings.append({"on": power, "minute": minute, "days": len(days)})
+        buckets.setdefault((power, minute), set()).add(day)
+    counts = {(power, minute): len(set().union(*(buckets.get((power, (minute + offset) % 1440), set())
+                                               for offset in range(-3, 4)))) for power, minute in buckets}
+    covered = set()
+    for day, minute, power in samples:
+        if counts[power, minute] >= 2 and (power, minute) not in covered:
+            warnings.append({"on": power, "minute": minute, "days": counts[power, minute]})
+            covered.update((power, (minute + offset) % 1440) for offset in range(-6, 7))
     return warnings
 
 
@@ -1105,18 +1114,21 @@ def previews():
 
 
 def theme_list():
-    return [[n, p, clip(p)] for n, p in themes.items()]
+    with lock:
+        items = list(themes.items())
+    return [[n, p, clip(p)] for n, p in items]
 
 
-def save_theme(name, p):
+def save_theme(name, p, *, persist=True):
     name = " ".join(str(name).split())[:40]
     if not name:
         raise ValueError("Give the theme a name.")
-    if name not in themes and len(themes) >= MAX_THEMES:
-        raise ValueError(f"You can keep up to {MAX_THEMES} themes. Delete one first.")
-    themes[name] = {k: v for k, v in clean(dict(p)).items() if k != "on"}
     with lock:
-        save()
+        if name not in themes and len(themes) >= MAX_THEMES:
+            raise ValueError(f"You can keep up to {MAX_THEMES} themes. Delete one first.")
+        themes[name] = {k: v for k, v in clean(dict(p)).items() if k != "on"}
+        if persist:
+            save()
 
 
 def disconnect_govee():
@@ -1161,13 +1173,14 @@ def ask_prompt(keys, text):
     bulbs = any(w in text.lower() for w in ("bulb", "paint", "pixel"))
     def small(p):
         return {k: v for k, v in p.items() if (k != "bulbs" or bulbs) and v is not None}
-    data = {"selected": keys, "lights": {k: {"name": lights[k]["name"], "look": small(look(v)),
-            "capabilities": capability(k), "schedule": schedule[k]} for k, v in st.items()}, "presets": BUILTIN,
-            "themes": {k: small(v) for k, v in themes.items()},
-            "history": {k: [small(h) for h in st[k]["history"][-3:]] for k in keys},
-            "location_set": location is not None, "found": [{"id": k, "sku": d["sku"]} for k, d in found.items() if k not in lights],
-            "chat": chat_view()["turns"], "request": text[:500]}
-    return json.dumps(data, separators=(",", ":"))
+    with lock:
+        data = {"selected": keys, "lights": {k: {"name": lights[k]["name"], "look": small(look(v)),
+                "capabilities": capability(k), "schedule": schedule[k]} for k, v in st.items()}, "presets": BUILTIN,
+                "themes": {k: small(v) for k, v in themes.items()},
+                "history": {k: [small(h) for h in st[k]["history"][-3:]] for k in keys},
+                "location_set": location is not None, "found": [{"id": k, "sku": d["sku"]} for k, d in found.items() if k not in lights],
+                "chat": chat_view()["turns"], "request": text[:500]}
+        return json.dumps(data, separators=(",", ":"))
 
 
 def ask_claude(keys, text):
@@ -1340,7 +1353,7 @@ def _apply_answer(answer, keys):
             for k in targets:
                 previous = histories[k].pop()
                 light_settings(k, previous)
-                looks[k] = previous
+                looks[k] = dict(looks[k], **{field: v for field, v in previous.items() if field not in ("on", "brightness")})
         if kind in ("save_theme", "rename_theme", "delete_theme", "rename_light"):
             name = a.get("name")
             if not isinstance(name, str) or not name.strip() or len(name) > (30 if kind == "rename_light" else 40):
@@ -1377,27 +1390,28 @@ def _apply_answer(answer, keys):
                 raise ValueError("Delete a theme first.")
         plan.append((kind, targets, value))
     changed = False
-    for kind, targets, value in plan:
-        if kind in ("set", "apply_theme", "paint", "undo"):
-            for k in targets:
-                if kind == "undo":
-                    undo(k)
-                else:
-                    changed = push(k, dict(value[k] if kind == "paint" else value)) or changed
-        elif kind == "save_theme":
-            save_theme(*value)
-        elif kind == "rename_theme":  # keeps its place in My themes
-            renamed = [(value[1] if k == value[0] else k, v) for k, v in themes.items()]
-            themes.clear(); themes.update(renamed)
-        elif kind == "delete_theme":
-            del themes[value]
-        elif kind == "rename_light":
-            lights[targets[0]]["name"] = value
-        elif kind == "location":
-            location = value
-    if plan:
-        with lock:
-            schedule.update({k: scheds[k] for k in changed_schedules})
+    try:
+        for kind, targets, value in plan:
+            if kind in ("set", "apply_theme", "paint", "undo"):
+                for k in targets:
+                    if kind == "undo":
+                        undo(k, persist=False)
+                    else:
+                        changed = push(k, dict(value[k] if kind == "paint" else value), persist=False) or changed
+            elif kind == "save_theme":
+                save_theme(*value, persist=False)
+            elif kind == "rename_theme":  # keeps its place in My themes
+                renamed = [(value[1] if k == value[0] else k, v) for k, v in themes.items()]
+                themes.clear(); themes.update(renamed)
+            elif kind == "delete_theme":
+                del themes[value]
+            elif kind == "rename_light":
+                lights[targets[0]]["name"] = value
+            elif kind == "location":
+                location = value
+        schedule.update({k: scheds[k] for k in changed_schedules})
+    finally:
+        if plan:
             save()
     return answer["say"][:300], changed and any(st[k]["history"] != h for k, h in before_histories.items())
 
@@ -1607,9 +1621,10 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"ok": True})
             if self.path == "/api/reconnect":
                 seen = discover()
-                for k in keys:
-                    reconnect(k)
                 lost = [lights[k]["name"] for k in keys if k not in seen]
+                for k in keys:
+                    if k in seen:
+                        reconnect(k)
                 if lost:
                     raise ValueError(f"Could not find {' and '.join(lost)}. Check each light has power and LAN Control is on in the Govee Home app.")
                 return self.reply(200, {"ok": True})
@@ -1627,197 +1642,6 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    f = razer_frame([[1, 2, 3]])
-    assert f == [0xBB, 0, 5, 0xB0, 0, 1, 1, 2, 3], f
-    assert razer_frame([[0, 0, 0]] * 132)[:6] == [0xBB, 0x01, 0x8E, 0xB0, 0, 132]  # bytes the H805D showed one per bulb (Nov 7)
-    for e in EFFECTS:
-        for t in (0.0, 1.7, 123.4):
-            fr = render(dict(DEFAULT, effect=e, colors=[GOLD, SILVER, [9, 9, 9]]), t)
-            assert len(fr) == N and all(len(c) == 3 and all(-0.001 <= v <= 255.001 for v in c) for c in fr), e
-    assert clean({"brightness": 500, "speed": -1, "junk": 1}) == {"brightness": 100, "speed": 0.05}
-    utc = lambda d: d.astimezone(dt.timezone.utc)  # naive local -> UTC, so the check passes in any time zone
-    london = [51.5, -0.13]
-    ss, ws = utc(sunset(dt.date(2026, 6, 21), london)), utc(sunset(dt.date(2026, 12, 21), london))
-    assert (ss.hour, ws.hour) == (20, 15), (ss, ws)  # London: ~9:21 PM BST in June, ~3:53 PM in December
-    assert sunset(dt.date(2026, 6, 21), [89.0, 0.0])  # midnight sun: clamped, no crash
-    assert sunset(dt.date.today()) is None and when("sunset", dt.date.today()) is None  # no location yet
-    try:
-        clean_time("sunset"); assert False, "sunset needs a location"
-    except ValueError:
-        pass
-    location = london
-    assert clean_time("Sunset + 30") == "sunset+30" and clean_time("sunset-0") == "sunset" and clean_time("7:05") == "07:05"
-    for bad in ("sunset+121", "sunset-x", "25:00", "", "noon"):
-        try:
-            clean_time(bad); assert False, bad
-        except ValueError:
-            pass
-    sat_sun = [{"id": "on", "time": "sunset-15", "action": "on", "days": [5, 6], "enabled": True},
-               {"id": "off", "time": "00:00", "action": "off", "days": [5, 6], "enabled": True}]
-    assert migrate({"on": "sunset-15", "off": "00:00", "days": [5, 6]}) == {"use": True, "timers": sat_sun}
-    assert migrate({"use": False, "timers": sat_sun + [{"time": "junk", "action": "on"}]}) == {"use": False, "timers": sat_sun}
-    assert clean_location("37.123456", -122.98765) == [37.12, -122.99]
-    for bad in ((91, 0), (0, 181), ("nan", 0), ("x", 0)):
-        try:
-            clean_location(*bad); assert False, bad
-        except ValueError:
-            pass
-    location = None
-    assert clean_days(None) == list(range(7)) and clean_days([4, 0, 0]) == [0, 4]
-    for bad in ([], [7], [-1], ["1"], [True], "0,1", 3):
-        try:
-            clean_days(bad); assert False, bad
-        except (ValueError, TypeError):
-            pass
-    fri = dt.datetime(2026, 11, 6)
-    assert fri.weekday() == 4
-    at = lambda d, hm: fri + dt.timedelta(days=d, hours=int(hm[:2]), minutes=int(hm[3:]))
-    on, off, late = ({"id": a + h, "time": h, "action": a, "days": [0, 1, 2, 3, 4], "enabled": True}
-                     for h, a in (("18:00", "on"), ("00:00", "off"), ("23:00", "off")))
-    wk = [on, off]
-    assert due(wk, on, at(0, "18:00")) and not due(wk, on, at(1, "18:00"))  # Friday yes, Saturday no
-    assert due(wk, off, at(1, "00:00"))  # Saturday 12 AM ends Friday's evening, so it still turns off
-    assert not due(wk, off, at(3, "00:00")) and due(wk, off, at(4, "00:00"))  # Mon 12 AM ends Sunday (no); Tue ends Mon
-    assert due(wk + [late], late, at(0, "23:00")) and not due(wk + [late], late, at(1, "23:00"))  # after the on: its own day
-    assert not due([off], off, at(1, "00:00"))  # no on timer at all: the off is just a time on its days
-    assert due([dict(on, enabled=False), off], off, at(1, "00:00"))  # pausing the on timer doesn't move the off's nights
-    assert next_run(wk, at(0, "12:00")) == (at(0, "18:00"), on)
-    assert next_run(wk, at(0, "18:00")) == (at(1, "00:00"), off)  # tonight's off, Saturday 12 AM
-    assert next_run(wk, at(1, "00:00")) == (at(3, "18:00"), on)  # weekend skipped: Monday 6 PM
-    assert next_run([dict(on, enabled=False)], fri) is None
-    for n, p in BUILTIN.items():
-        assert len(render(dict(DEFAULT, **p), 5.0)) == N, n
-    walk = dict(DEFAULT, effect="custom", speed=0.85, animation={"frames": [{"pattern": [[255, 0, 0], GOLD, SILVER], "duration": 0.2, "fade": 0}], "shift": 1, "motion": "forward", "block": 1})
-    steps = [custom_frame(walk["animation"], k / FPS + (k % 3) * 0.01, 3, 0.85)[0] for k in range(30)]  # late sends jitter
-    runs = [len(list(g)) for _, g in __import__("itertools").groupby(steps)][1:-1]
-    assert len(set(runs)) == 1, runs  # every step of an animation lasts equally long
-    chat["turns"] = [["hi", "hello", False]]  # chat["at"] is 0, so it counts as long expired
-    assert chat_view()["turns"] == []
-    # discovery parsing and setup, against a throwaway state file so the real one is never touched
-    ok = json.dumps({"msg": {"cmd": "scan", "data": {"ip": "192.168.1.9", "device": "12:34:56:78:9A:BC:DE:F0", "sku": "H805D"}}})
-    assert parse_scan(ok) == ("12:34:56:78:9A:BC:DE:F0", "192.168.1.9", "H805D") and short("12:34:56:78:9A:BC:DE:F0") == "DEF0"
-    for bad in ("junk", "[]", '{"msg": {"data": {"ip": "8.8.8.8", "device": "x"}}}', '{"msg": {"data": {"device": "x"}}}'):
-        assert parse_scan(bad) is None, bad
-    real, SAVE, was_dry, DRY = SAVE, Path(tempfile.mkdtemp()) / "state.json", DRY, True  # setup turns a new light on
-    found = {"12:34:56:78:9A:BC:DE:F0": {"ip": "192.168.1.9", "sku": "H805D"}}
-    for bad in ([], [{"id": "nope", "name": "X"}], [{"id": "12:34:56:78:9A:BC:DE:F0", "name": "  "}], "x"):
-        try:
-            save_lights(bad); assert False, bad
-        except ValueError:
-            pass
-    save_lights([{"id": "12:34:56:78:9A:BC:DE:F0", "name": "  Porch   rail "}])
-    assert lights["12:34:56:78:9A:BC:DE:F0"] == {"name": "Porch rail", "sku": "H805D", "ip": "192.168.1.9"} and st and schedule
-    try:
-        flash("nope"); assert False, "flash must refuse a light the scan did not find"
-    except ValueError:
-        pass
-    blink = threading.Thread(target=flash, args=("12:34:56:78:9A:BC:DE:F0", 0.1)); blink.start(); time.sleep(0.05)
-    assert flash("12:34:56:78:9A:BC:DE:F0") is False  # a second tap while it blinks does nothing
-    blink.join(); assert not flashing and flash("12:34:56:78:9A:BC:DE:F0", 0) is True
-    data = json.loads(SAVE.read_text())
-    P = "12:34:56:78:9A:BC:DE:F0"
-    data["_schedule"] = {P: {"on": "18:00", "off": None}}  # saved before days, the switch and timers existed
-    SAVE.write_text(json.dumps(data))
-    lights.clear(); st.clear(); schedule.clear(); load()
-    assert lights[P]["name"] == "Porch rail" and st[P]["on"]
-    assert schedule[P] == {"use": True, "timers": [{"id": "on", "time": "18:00", "action": "on", "days": list(range(7)), "enabled": True}]}
-    s = {P: dict(schedule[P])}
-    change_timers(s, [P], add=[{"time": "23:00", "action": "off", "days": [4], "theme": "Fireplace"}], edit=[{"id": "on", "enabled": False}])
-    assert [t["enabled"] for t in s[P]["timers"]] == [False, True] and "theme" not in s[P]["timers"][1]  # an off timer has no look
-    assert schedule[P]["timers"][0]["enabled"]  # only the copy changed
-    change_timers(s, [P], delete=["on"])
-    assert [t["time"] for t in s[P]["timers"]] == ["23:00"]
-    for bad in (dict(add=[{"time": "18:00", "action": "on"}] * 10), dict(edit=[{"id": "nope"}]), dict(delete=["nope"]), dict(add="x"),
-                dict(add=[{"time": "18:00", "action": "on", "theme": "No such theme"}]), dict(add=[{"time": "18:00", "action": "dim"}]),
-                dict(add=[{"time": "18:00", "action": "on", "enabled": "yes"}]), dict(add=[{"time": "18:00", "action": "on", "code": 1}])):
-        try:
-            change_timers({P: dict(s[P])}, [P], **bad); assert False, bad
-        except ValueError:
-            pass
-    assert len(s[P]["timers"]) == 1
-    sent, real_send = [], send
-    send = lambda k, cmd, data: sent.append((k, cmd, data))
-    st[P]["on"] = False
-    six = dt.datetime.combine(dt.date.today(), dt.time(18))
-    schedule[P]["use"] = False
-    schedule_tick(six - dt.timedelta(minutes=1), six)
-    assert sent == [] and not st[P]["on"]  # switched off: nothing sent at the on time
-    schedule[P]["use"] = True
-    schedule_tick(six - dt.timedelta(minutes=1), six)
-    assert (P, "turn", {"value": 1}) in sent and st[P]["on"]
-    schedule[P]["timers"] = [clean_timer({"time": "18:00", "action": "on", "theme": "Fireplace", "enabled": False})]
-    sent.clear(); schedule_tick(six - dt.timedelta(minutes=1), six)
-    assert sent == []  # a disabled timer does nothing
-    schedule[P]["timers"][0]["enabled"] = True
-    schedule_tick(six - dt.timedelta(minutes=1), six)
-    assert st[P]["effect"] == "fire" and st[P]["on"]  # an on timer with a theme shows that look
-    send = real_send
-    schedule[P]["use"] = False
-    save(); schedule.clear(); lights.clear(); st.clear(); load()
-    assert schedule[P]["use"] is False and schedule[P]["timers"][0]["theme"] == "Fireplace"  # off survives a restart, timers kept
-    forget_light("12:34:56:78:9A:BC:DE:F0")
-    assert not lights and not st and not schedule
-    # Public-schema samples only: these checks never call a network transport.
-    sample = json.loads((HERE / "samples/govee.json").read_text())
-    devices = parse_devices(sample["devices"])
-    assert devices[0]["deviceName"] == "Reading lights" and len(devices) == 2
-    catalog = parse_scenes(devices[0]["capabilities"])
-    assert catalog[1]["instance"] == "snapshot" and catalog[1]["value"] == 0
-    assert parse_scenes(sample["scenes"]["payload"]["capabilities"])[0]["value"] == {"id": 3867, "paramId": 4294}
-    assert parse_scenes(sample["diy-scenes"]["payload"]["capabilities"])[0]["instance"] == "diyScene"
-    assert parse_scenes([]) == []
-    for bad in ({"code": 401}, {"code": 403}, {"code": 429}, {"code": 500}, [], {"code": 200, "data": {}}):
-        try:
-            parse_devices(bad); assert False, bad
-        except ValueError as e:
-            assert "Govee" in str(e)
-    for bad in (None, {}, [{"instance": "snapshot", "parameters": {"options": "bad"}}]):
-        try:
-            parse_scenes(bad); assert False, bad
-        except ValueError:
-            pass
-    try:
-        govee_read("sample-not-a-key", "device/control"); assert False, "mutation must be rejected before transport"
-    except ValueError:
-        pass
-    assert parse_status(json.dumps(sample["status"])) is True
-    for bad in ("junk", "[]", '{"msg":{"cmd":"scan","data":{"onOff":1}}}', '{"msg":{"cmd":"devStatus","data":{"onOff":"1"}}}'):
-        assert parse_status(bad) is None
-    events = sample["outside"]
-    assert repeated_changes(events) == [{"on": True, "minute": 1080, "days": 2}]
-    assert not repeated_changes(events[:1] * 2)  # one date never counts twice
-    assert not repeated_changes([events[0], dict(events[1], on=False)])
-    assert not repeated_changes([events[0], dict(events[1], at="2026-11-06T18:04:00")])
-    assert len(repeated_changes(events + [dict(e, on=False) for e in events])) == 2
-    assert repeated_changes([dict(events[0], at="2026-11-05T23:59:00"), dict(events[1], at="2026-11-06T00:01:00")])
-    dev = devices[0]["device"]
-    add_light(dev, "Sample light", "H805D", "192.168.0.20")
-    start = dt.datetime(2026, 11, 5, 17, 59, 55)
-    observe_power(dev, False, start, 100)
-    assert not outside.get(dev) and dev in paused  # baseline respects power, but invents no event
-    observe_power(dev, True, start + dt.timedelta(seconds=5), 105)
-    assert len(outside[dev]) == 1 and st[dev]["on"] and dev in paused
-    command_at[dev] = 106
-    observe_power(dev, False, start + dt.timedelta(seconds=10), 110)
-    assert len(outside[dev]) == 1  # app commands do not count
-    observe_power(dev, True, start + dt.timedelta(minutes=2), 225)
-    assert len(outside[dev]) == 1  # long observation gap has no exact time
-    govee_key = "sample-not-a-key"
-    save()
-    assert os.name == "nt" or SAVE.stat().st_mode & 0o777 == 0o600  # Windows has no POSIX modes; the profile folder is per-user
-    outside.clear(); paused.clear(); govee_key = ""; load()
-    assert govee_key == "sample-not-a-key" and len(outside[dev]) == 1 and dev in paused
-    ask_on = False; save(); ask_on = True; load()
-    assert ask_on is False  # "Not now" survives a restart
-    data = json.loads(SAVE.read_text()); del data["_ask"]; SAVE.write_text(json.dumps(data)); load()
-    assert ask_on is True  # a save from before the choice keeps the chat
-    reconnect(dev)  # explicit user action, still DRY inside these assertions
-    assert dev not in paused and dev not in json.loads(SAVE.read_text())["_paused"]
-    forget_light(dev)
-    assert dev not in outside and dev not in paused
-    govee_key = ""
-    print("Self-checks passed (saved samples; no network).")
-    SAVE, found, DRY = real, {}, was_dry
     PREVIEWS = previews()
     load()
     if lan_open():

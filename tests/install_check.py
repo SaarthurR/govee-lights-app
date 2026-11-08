@@ -66,11 +66,11 @@ if MAC:
     env.update(HOME=str(home), GOVEE_LABEL=label)
 
 
-def install(shell, *args):
+def install(shell, *args, source=ROOT):
     if WIN:
-        command = [shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(ROOT / 'install.ps1'), *args]
+        command = [shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(source / 'install.ps1'), *args]
     else:
-        command = ['sh', str(ROOT / 'install.sh'), *args]
+        command = ['sh', str(source / 'install.sh'), *args]
     print('$', ' '.join(command), flush=True)
     subprocess.run(command, env=env, cwd=tempfile.gettempdir(), check=True, timeout=600)
 
@@ -155,7 +155,9 @@ try:
         install(shell)
         service = check_running(name)
         before = starts()
-        install(shell)  # run again = update
+        installed_script = app / ('install.ps1' if WIN else 'install.sh')
+        installed_script.write_text(installed_script.read_text() + '\n# Installed copy differs from the update archive.\n')
+        install(shell, source=app)  # overwrite the running installer with a different length
         check_running(name + ' reinstall')
         assert starts() == before + 1, f'expected one restart, log shows {starts() - before}'
         install(shell, '-Uninstall' if WIN else '--uninstall')
