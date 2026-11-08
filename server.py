@@ -43,7 +43,7 @@ BUILTIN = dict(PRESETS)
 MAX_BODY, MAX_THEMES, MAX_NAME = 65536, 60, 30
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-lock = threading.Lock()
+lock = threading.RLock()
 scan_lock = threading.Lock()  # one LAN scan at a time: two sockets on port 4002 would split the replies
 lights = {}  # saved lights, in picker order: Govee device id -> {"name", "sku", "ip"}
 found = {}   # every Govee light that answered the last scan: device id -> {"sku", "ip"}
@@ -519,20 +519,24 @@ def push(key, p, remember=True):
         before = look(s)
         s.update(p)
         s["frame"] = [[int(v) for v in c] for c in render(s, time.time(), capability(key)["bulbs"])]
-        if remember and any(s[k] != before[k] for k in KEYS if k not in ("on", "brightness")):
+        added = remember and any(s[k] != before[k] for k in KEYS if k not in ("on", "brightness"))
+        if added:
             s["history"] = (s["history"] + [before])[-HISTORY:]  # only looks go in undo, not on/off taps
         s["error"] = None
         save()
     if s["on"]:
         razer(key, ARM)
+    return added
 
 
 def undo(key):
     with lock:
         if not st[key]["history"]:
             raise ValueError("Nothing to undo.")
-        prev = st[key]["history"].pop()
-    push(key, prev, remember=False)
+        prev = st[key]["history"][-1]
+        push(key, prev, remember=False)
+        st[key]["history"].pop()
+        save()
 
 
 def streamer():
@@ -690,22 +694,33 @@ def next_run(timers, now):
     return min(runs, key=lambda r: r[0], default=None)
 
 
+fired = set()  # (light, timer id, local date), including the repeated DST hour
+
+
 def schedule_tick(last, now):
-    for k, sc in list(schedule.items()):
-        if not sc["use"]:
-            continue  # switched off: Govee Home timers run this light, the app never turns it on or off
-        for t in sc["timers"]:
-            at = t["enabled"] and when(t["time"], now.date())
-            if at and last < at <= now and due(sc["timers"], t, at):  # crossed it since the last check, on a chosen day
-                p = {"on": t["action"] == "on"}
-                if t.get("theme"):
-                    p = dict(themes.get(t["theme"]) or BUILTIN.get(t["theme"]) or {}, **p)  # deleted since: last look
-                try:
-                    push(k, p)
-                except (OSError, ValueError) as e:
-                    st[k]["error"] = f"schedule: {e}"
-                except KeyError:
-                    pass  # the light was forgotten a moment ago
+    with lock:
+        fired.intersection_update({x for x in fired if x[2] >= now.date() - dt.timedelta(days=1)})
+        runs = []
+        day = last.date() - dt.timedelta(days=1)  # sunset offsets can spill into a neighboring date
+        while day <= now.date() + dt.timedelta(days=1):
+            for k, sc in schedule.items():
+                if not sc["use"]:
+                    continue
+                for t in sc["timers"]:
+                    at = t["enabled"] and when(t["time"], day)
+                    occurrence = (k, t["id"], day)
+                    if at and last < at <= now and due(sc["timers"], t, at) and occurrence not in fired:
+                        runs.append((at, k, t, occurrence))
+            day += dt.timedelta(days=1)
+        for at, k, t, occurrence in sorted(runs, key=lambda r: r[0]):
+            fired.add(occurrence)
+            p = {"on": t["action"] == "on"}
+            if t.get("theme"):
+                p = dict(themes.get(t["theme"]) or BUILTIN.get(t["theme"]) or {}, **p)
+            try:
+                push(k, p)
+            except (OSError, ValueError) as e:
+                st[k]["error"] = f"schedule: {e}"
 
 
 def schedule_loop():
@@ -977,9 +992,15 @@ def observe_power(dev, power, now, stamp):
                 st[dev]["on"] = power
                 save()
             return  # first reading or a long gap gives no reliable change time
-        if power == previous[0]:
+        if stamp - command_at.get(dev, -1000) < 20:
             return
-        if previous[1] <= command_at.get(dev, -1000) or stamp - command_at.get(dev, -1000) < 20:
+        if power == previous[0]:
+            if st[dev]["on"] != power:
+                paused.add(dev)
+                st[dev]["on"] = power
+                save()
+            return
+        if previous[1] <= command_at.get(dev, -1000):
             return
         events = outside.setdefault(dev, [])
         cutoff = (now - dt.timedelta(days=35)).isoformat()
@@ -1150,6 +1171,16 @@ def ask_claude(keys, text):
 
 
 def apply_answer(answer, keys):
+    actions = answer.get("actions") if isinstance(answer, dict) else None
+    # Network actions take govee_lock before lock; keep them outside the batch lock.
+    if (isinstance(actions, list) and len(actions) == 1 and isinstance(actions[0], dict) and
+        actions[0].get("type") in ("flash", "reconnect", "forget_light", "scan", "save_lights", "govee_refresh", "govee_disconnect", "govee_scenes", "ask_use", "clear_chat")):
+        return _apply_answer(answer, keys)
+    with lock:
+        return _apply_answer(answer, keys)
+
+
+def _apply_answer(answer, keys):
     global location, ask_on
     # Validate the whole batch against copies before any device or saved-state change.
     if not isinstance(answer, dict) or set(answer) - {"say", "actions"} or not isinstance(answer.get("say"), str):
@@ -1160,6 +1191,7 @@ def apply_answer(answer, keys):
     looks, saved = {k: look(v) for k, v in st.items()}, dict(themes)
     histories = {k: list(v["history"]) for k, v in st.items()}
     scheds = {k: dict(v, timers=list(v["timers"])) for k, v in schedule.items()}
+    changed_schedules = set()
     location_set = location is not None
     plan = []
     for a in actions:
@@ -1279,6 +1311,7 @@ def apply_answer(answer, keys):
             change_timers(scheds, targets, value.get("add", []), value.get("edit", []), value.get("delete", []), saved=saved, location_set=location_set)
             for k in targets:
                 scheds[k]["use"] = value.get("use", scheds[k]["use"])
+                changed_schedules.add(k)
         elif kind == "undo":
             if any(not histories[k] for k in targets):
                 raise ValueError("Nothing to undo.")
@@ -1307,8 +1340,10 @@ def apply_answer(answer, keys):
                     if new != name and new in saved:
                         raise ValueError("That theme name already exists.")
                     saved[new] = saved.pop(name)
-                    for sc in scheds.values():
-                        sc["timers"] = [dict(t, theme=new) if t.get("theme") == name else t for t in sc["timers"]]
+                    for k, sc in scheds.items():
+                        if any(t.get("theme") == name for t in sc["timers"]):
+                            sc["timers"] = [dict(t, theme=new) if t.get("theme") == name else t for t in sc["timers"]]
+                            changed_schedules.add(k)
                     value = (name, new)
                 else:
                     del saved[name]
@@ -1324,8 +1359,7 @@ def apply_answer(answer, keys):
                 if kind == "undo":
                     undo(k)
                 else:
-                    push(k, dict(value[k] if kind == "paint" else value))
-            changed = True
+                    changed = push(k, dict(value[k] if kind == "paint" else value)) or changed
         elif kind == "save_theme":
             save_theme(*value)
         elif kind == "rename_theme":
@@ -1338,7 +1372,7 @@ def apply_answer(answer, keys):
             location = value
     if plan:
         with lock:
-            schedule.update(scheds)
+            schedule.update({k: scheds[k] for k in changed_schedules})
             save()
     return answer["say"][:300], changed
 
@@ -1468,10 +1502,14 @@ class H(BaseHTTPRequestHandler):
                     save()
                 return self.reply(200, {"ok": True})
             if self.path == "/api/theme":
-                light = body.get("light") if body.get("light") in st else next(iter(st), None)
-                if not body.get("settings") and not light:
-                    raise ValueError("Set up a light first.")
-                save_theme(body.get("name", ""), body.get("settings") or look(st[light]))
+                with lock:
+                    selected = body.get("light")
+                    light = selected if selected in st else next(iter(st), None)
+                    if not body.get("settings") and not light:
+                        raise ValueError("Set up a light first.")
+                    if selected == "all" and not body.get("settings") and any(look(s) != look(st[light]) for s in st.values()):
+                        raise ValueError("The lights have different looks. Pick one light to save its theme.")
+                    save_theme(body.get("name", ""), body.get("settings") or look(st[light]))
                 return self.reply(200, {"ok": True})
             if self.path == "/api/theme/delete":
                 themes.pop(str(body.get("name", "")), None)
@@ -1510,8 +1548,11 @@ class H(BaseHTTPRequestHandler):
                     push(k, p)
                 return self.reply(200, {"ok": True})
             if self.path == "/api/undo":
-                for k in keys:
-                    undo(k)
+                with lock:
+                    if any(not st[k]["history"] for k in keys):
+                        raise ValueError("Nothing to undo.")
+                    for k in keys:
+                        undo(k)
                 return self.reply(200, {"ok": True})
             if self.path == "/api/schedule":  # {"light", "add": [timer], "edit": [{"id", ...changes}], "delete": [id]}
                 with lock:
@@ -1521,9 +1562,9 @@ class H(BaseHTTPRequestHandler):
                     save()
                 return self.reply(200, {"ok": True})
             if self.path == "/api/schedule/use":
-                for k in keys:
-                    schedule[k]["use"] = body.get("use") is True
                 with lock:
+                    for k in keys:
+                        schedule[k]["use"] = body.get("use") is True
                     save()
                 return self.reply(200, {"ok": True})
             if self.path == "/api/reconnect":
