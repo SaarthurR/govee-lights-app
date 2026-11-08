@@ -232,6 +232,11 @@ class AskChecks(unittest.TestCase):
                 answer = dict(say="Created", actions=[dict(type="save_theme", name="Ember", settings=dict(effect="fire"))])
                 self.assertEqual(post("all")[0], 200)
                 self.assertIn("Ember", app.themes)
+                req = app.request.Request("http://127.0.0.1:8771/api/theme/rename", data=json.dumps(dict(name="Ember", new=" Glow ")).encode(),
+                                          headers={"Content-Type": "application/json"})
+                with app.request.urlopen(req) as r:
+                    self.assertEqual(json.load(r), {"ok": True})
+                self.assertIn("Glow", app.themes); self.assertNotIn("Ember", app.themes)
                 answer = dict(say="Cleared", actions=[dict(type="clear_chat")])
                 self.assertEqual(post("")[1]["turns"], [])
         finally:
