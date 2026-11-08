@@ -4,11 +4,12 @@ import datetime as dt
 import io
 import json
 import os
+import random
 from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ["GOVEE_DRY"] = "1"
 import server as app
@@ -212,6 +213,134 @@ class FixChecks(unittest.TestCase):
         self.assertFalse(self.answer([])[1])
         self.assertFalse(self.answer([dict(type="set", settings=dict(effect="solid")), dict(type="undo")])[1])
         self.assertEqual(app.st["a"]["history"], [])
+
+
+    def test_undo_preserves_current_power_and_brightness(self):
+        app.push("a", dict(effect="solid"))
+        app.push("a", dict(on=False, brightness=23))
+        app.undo("a")
+        self.assertFalse(app.st["a"]["on"])
+        self.assertEqual(app.st["a"]["brightness"], 23)
+        self.assertEqual(app.st["a"]["effect"], app.DEFAULT["effect"])
+        # Old saved entries and a later theme save in the same answer use current power.
+        app.push("a", dict(effect="solid"))
+        app.st["a"]["history"][-1].update(on=True, brightness=100)
+        self.answer([dict(type="undo"), dict(type="save_theme", name="After undo")])
+        self.assertFalse(app.st["a"]["on"])
+        self.assertEqual(app.themes["After undo"]["brightness"], 23)
+
+    def test_undo_does_not_wake_an_off_basic_light_with_a_color_command(self):
+        app.add_light("c", "Basic", "H6008")
+        app.push("c", dict(colors=[[255, 0, 0]]))
+        app.push("c", dict(on=False, brightness=23))
+        with patch.object(app, "send") as send:
+            app.undo("c")
+        send.assert_not_called()
+        self.assertFalse(app.st["c"]["on"])
+        self.assertEqual(app.st["c"]["brightness"], 23)
+        self.assertEqual(app.st["c"]["colors"], [app.DEFAULT["colors"][0]])
+
+    def test_colors_require_exactly_three_integer_channels(self):
+        before = copy.deepcopy(app.st)
+        for colors in ([[255, 0, 0, 9]], [[255, 0]], [[True, 0, 0]], [["255", 0, 0]], [[255, 0, None]], "red"):
+            with self.subTest(colors=colors):
+                self.assertEqual(self.post("/api/set", dict(light="a", settings=dict(colors=colors)))[0], 400)
+                self.assertEqual(app.st, before)
+        self.assertEqual(app.clean(dict(colors=[[255, 0, 0]]))["colors"], [[255, 0, 0]])
+
+    def test_theme_snapshot_and_prompt_use_the_state_lock(self):
+        case = self
+        class Gate:
+            held = False
+            def __enter__(self): self.held = True
+            def __exit__(self, *args): self.held = False
+        gate = Gate()
+        class Guarded(dict):
+            def items(self):
+                case.assertTrue(gate.held)
+                return super().items()
+            def __setitem__(self, key, value):
+                case.assertTrue(gate.held)
+                super().__setitem__(key, value)
+        saved = Guarded(One=dict(effect="solid"))
+        def preview(p):
+            self.assertFalse(gate.held)
+            dict.__setitem__(saved, "Two", dict(effect="wave"))
+            return []
+        with patch.object(app, "themes", saved), patch.object(app, "st", Guarded(app.st)), patch.object(app, "lock", gate):
+            with patch.object(app, "clip", side_effect=preview):
+                self.assertEqual([row[0] for row in app.theme_list()], ["One"])
+            context = json.loads(app.ask_prompt(["a"], "dim"))
+            self.assertEqual(set(context["themes"]), {"One", "Two"})
+            with patch.object(app, "save"):
+                app.save_theme("Three", dict(effect="solid"))
+
+    def test_batch_saves_once_including_undo_and_theme(self):
+        with patch.object(app, "save", wraps=app.save) as save:
+            self.answer([dict(type="set", target="all", settings=dict(effect="solid")),
+                         dict(type="save_theme", target="all", name="Solid"),
+                         dict(type="undo", target="all")])
+            save.assert_called_once()
+        saved = json.loads(app.SAVE.read_text())
+        self.assertEqual(saved["a"]["history"], [])
+        self.assertIn("Solid", saved["_themes"])
+        with patch.object(app, "save") as save:
+            app.push("a", dict(brightness=50))
+            save.assert_called_once()
+
+    def test_batch_saves_successful_sends_if_a_later_send_fails(self):
+        original = app.send
+        def fail_second(key, *args):
+            if key == "b":
+                raise OSError("second light failed")
+            return original(key, *args)
+        with patch.object(app, "send", side_effect=fail_second), patch.object(app, "save", wraps=app.save) as save:
+            with self.assertRaises(OSError):
+                self.answer([dict(type="set", target="all", settings=dict(on=False))])
+            save.assert_called_once()
+        saved = json.loads(app.SAVE.read_text())
+        self.assertFalse(saved["a"]["look"]["on"])
+        self.assertTrue(saved["b"]["look"]["on"])
+
+    def test_reconnect_only_pushes_to_lights_seen_in_scan(self):
+        app.st["b"]["error"] = "not found"
+        with patch.object(app, "discover", return_value={"a": app.lights["a"]}), patch.object(app, "reconnect", wraps=app.reconnect) as reconnect:
+            code, body = self.post("/api/reconnect", dict(light="all"))
+        self.assertEqual(code, 400)
+        self.assertIn("Second", body["error"])
+        reconnect.assert_called_once_with("a")
+        self.assertEqual(app.st["b"]["error"], "not found")
+
+    def test_discovery_closes_receiver_if_bind_fails(self):
+        receiver = MagicMock()
+        receiver.bind.side_effect = OSError("address in use")
+        with patch.object(app, "DRY", False), patch.object(app, "lan_gate"), patch.object(app.socket, "socket", return_value=receiver):
+            with self.assertRaisesRegex(OSError, "address in use"):
+                app.discover()
+        receiver.close.assert_called_once()
+
+    def test_repeated_changes_matches_original_on_random_events(self):
+        def original(events):
+            """One warning per power/time cluster, across distinct local dates (within three minutes)."""
+            warnings = []
+            samples = [(dt.datetime.fromisoformat(e["at"]), e["on"]) for e in events]
+            samples = [(at.date(), at.hour * 60 + at.minute, power) for at, power in samples]
+            distance = lambda a, b: min(abs(a - b), 1440 - abs(a - b))
+            for day, minute, power in samples:
+                days = {date for date, other, on in samples if on == power and distance(other, minute) <= 3}
+                if len(days) >= 2 and not any(w["on"] == power and distance(w["minute"], minute) <= 6 for w in warnings):
+                    warnings.append({"on": power, "minute": minute, "days": len(days)})
+            return warnings
+        rng = random.Random(20261108)
+        start = dt.datetime(2026, 11, 1)
+        for run in range(100):
+            events = []
+            for _ in range(rng.randrange(200)):
+                minute = rng.choice([0, 1, 2, 3, 4, 6, 7, 1437, 1439, rng.randrange(1440)])
+                at = start + dt.timedelta(days=rng.randrange(8), minutes=minute, seconds=rng.randrange(60))
+                events.append(dict(at=at.isoformat(), on=bool(rng.randrange(2))))
+            with self.subTest(run=run):
+                self.assertEqual(app.repeated_changes(events), original(events))
 
 
 class HostChecks(unittest.TestCase):
