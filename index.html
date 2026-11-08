@@ -854,18 +854,21 @@ const swapColors = () => { const s = cur(); if (s) set({colors: [...s.colors].re
 let picked = 0;
 const SWATCHES = [['Gold',[255,200,80]],['Silver',[255,255,255]],['Candle',[255,150,60]],['Warm white',[255,190,110]],['Daylight',[225,235,255]],['Orange',[255,110,0]],['Amber',[255,150,0]],['Ember',[255,70,0]],['Ruby',[255,0,40]],['Deep red',[200,0,10]],['Rose',[255,60,120]],['Magenta',[255,0,140]],['Purple',[120,0,255]],['Royal blue',[40,40,255]],['Ice',[150,200,255]],['Teal',[0,200,200]],['Emerald',[0,200,80]],['Lime',[150,255,0]]];
 
-function colorsUI(cs) {
+// Claude's animations carry their own colors: show those, and recolor every frame when one changes
+const animColors = a => [...new Map(a.frames.flatMap(f => f.pattern).map(c => [c.join(), c])).values()].slice(0, 12);
+const recolor = (a, from, to) => ({...a, frames: a.frames.map(f => ({...f, pattern: f.pattern.map(c => same(c, from) ? to : c)}))});
+function colorsUI(cs, anim) {
   const box = $('colors'); box.innerHTML = '';
   if (picked >= cs.length) picked = 0;
   cs.forEach((c, i) => {
     const inp = document.createElement('input'); inp.type = 'color'; inp.value = toHex(c); inp.setAttribute('aria-label', 'Color ' + (i+1));
     inp.classList.toggle('picked', i === picked);
     inp.onfocus = inp.onclick = () => { picked = i; box.querySelectorAll('input').forEach((x, j) => x.classList.toggle('picked', j === i)); };
-    inp.onchange = () => { cs[i] = hex(inp.value); set({colors: cs}, 'Color updated'); };
+    inp.onchange = () => { if (anim) return set({animation: recolor(anim, c, hex(inp.value))}, 'Color updated'); cs[i] = hex(inp.value); set({colors: cs}, 'Color updated'); };
     box.appendChild(inp);
-    if (cs.length > 1) { const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove color ' + (i+1)); x.onclick = () => { cs.splice(i,1); set({colors: cs}, 'Color removed'); }; box.appendChild(x); }
+    if (cs.length > 1 && !anim) { const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove color ' + (i+1)); x.onclick = () => { cs.splice(i,1); set({colors: cs}, 'Color removed'); }; box.appendChild(x); }
   });
-  if (advanced() && cs.length < 6) { const add = document.createElement('button'); add.className = 'btn'; add.textContent = '+ Color'; add.onclick = () => set({colors: [...cs, [255,255,255]]}, 'Color added'); box.appendChild(add); }
+  if (!anim && advanced() && cs.length < 6) { const add = document.createElement('button'); add.className = 'btn'; add.textContent = '+ Color'; add.onclick = () => set({colors: [...cs, [255,255,255]]}, 'Color added'); box.appendChild(add); }
 }
 // sliders: the 150 ms poll must not move a thumb the user is holding. iOS Safari never focuses a range input
 // on touch, so the poll tracks our own pointer handling instead of document.activeElement, plus a short hold
@@ -909,7 +912,7 @@ const NO_SPEED = ['solid', 'pattern', 'paint'];
 let shownColors = '';
 function syncControls() {
   const s = cur(); if (!s) return;
-  const own = {rainbow: 'Rainbow makes its own colors. Pick another effect to use these.', custom: 'This animation has its own colors. Pick an effect to use these instead.'}[s.effect];
+  const own = {rainbow: 'Rainbow makes its own colors. Pick another effect to use these.', custom: 'These are the colors of this animation. Change one and the animation uses it.'}[s.effect];
   $('colorsNote').textContent = own || ''; $('colorsNote').hidden = !own;
   const full = advanced();
   document.body.classList.toggle('basic', !full); $('basicNote').hidden = full;
@@ -933,9 +936,10 @@ function syncControls() {
   $('swap').disabled = s.colors.length < 2;
   [['bright', s.brightness], ['speed', s.speed], ['amount', s.amount]].forEach(([id, v]) => { const r = $(id); if (!holding(r)) { r.value = v; slid(r); } });
   if (full) adaptEffects();
-  const cs = full ? s.colors : s.colors.slice(0, 1);
-  const key = JSON.stringify([full, cs]);
-  if (key !== shownColors && document.activeElement.type !== 'color') { shownColors = key; colorsUI(cs.map(c => [...c])); }
+  const anim = s.effect === 'custom' && s.animation;
+  const cs = anim ? animColors(anim) : full ? s.colors : s.colors.slice(0, 1);
+  const key = JSON.stringify([full, cs, !!anim]);
+  if (key !== shownColors && document.activeElement.type !== 'color') { shownColors = key; colorsUI(cs.map(c => [...c]), anim); }
 }
 function draw() {
   $('paintbar').classList.toggle('on', sel.size > 0);
@@ -960,7 +964,7 @@ function buildStrip() {
 }
 SWATCHES.forEach(([name, c]) => {
   const b = document.createElement('button'); b.className = 'sw'; b.style.background = toHex(c); b.title = name; b.setAttribute('aria-label', name);
-  b.onclick = () => { const s = cur(); if (!s) return; const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: advanced() ? cs : [c]}, `${name} added`); };
+  b.onclick = () => { const s = cur(); if (!s) return; if (s.effect === 'custom' && s.animation) { const old = animColors(s.animation); return set({animation: recolor(s.animation, old[Math.min(picked, old.length - 1)], c)}, `${name} added`); } const cs = s.colors.map(x => [...x]); cs[Math.min(picked, cs.length - 1)] = c; set({colors: advanced() ? cs : [c]}, `${name} added`); };
   $('swatches').appendChild(b);
 });
 CHIPS.forEach(t => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = t; c.onclick = () => ask(t); $('chips').appendChild(c); });
