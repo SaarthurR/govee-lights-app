@@ -50,6 +50,27 @@ class ModelChecks(unittest.TestCase):
         app.save(); app.load()
         self.assertTrue(all(app.st[k]["effect"] == "solid" for k in ("UNKNOWN", "H6008")))
 
+    def test_custom_animation_colors_feed_effects(self):
+        pat = [[160, 0, 255], [0, 80, 255], [255, 220, 0], [160, 0, 255]]
+        app.push("H805D", dict(effect="custom", colors=[[255, 200, 80], [255, 255, 255]], animation=dict(frames=[dict(pattern=pat, duration=1)])))
+        self.assertEqual(app.st["H805D"]["colors"], pat[:3])
+        app.push("H805D", dict(effect="wave"))
+        self.assertEqual(app.st["H805D"]["colors"], pat[:3])
+
+    def test_user_bulb_count_is_saved_and_streamed(self):
+        app.push("H805D", dict(effect="paint", bulbs=[[9, 9, 9]] * 132))
+        app.save_lights([dict(id="H805D", name="Porch", bulbs=96)])
+        self.assertEqual(app.capability("H805D"), dict(bulbs=96, razer=True))
+        self.assertEqual(len(app.st["H805D"]["bulbs"]), 96)
+        app.save_lights([dict(id="H6008", name="Lamp", bulbs=50)])  # basic lights ignore a count
+        self.assertEqual(app.capability("H6008")["bulbs"], 1)
+        for bad in (0, 256, 1.5, True, "96"):
+            with self.assertRaises(ValueError):
+                app.save_lights([dict(id="H805D", name="Porch", bulbs=bad)])
+        app.save(); app.lights.clear(); app.load()
+        self.assertEqual(app.capability("H805D")["bulbs"], 96)
+        self.assertEqual(len(app.razer_frame(app.render(app.st["H805D"], 1, 96))), 3 + 3 + 3 * 96)
+
     def test_stream_lengths_and_h805d(self):
         self.assertEqual(app.capability("H805D"), dict(bulbs=132, razer=True))
         self.assertEqual(app.capability("H619A"), dict(bulbs=20, razer=True))

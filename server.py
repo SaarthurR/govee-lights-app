@@ -12,7 +12,7 @@ APP_VERSION = update.settings()['version']
 
 HERE = Path(__file__).parent
 SAVE = Path(os.environ.get("GOVEE_STATE", HERE / "state.json"))   # lights, last look + history per light, themes, schedule; survives restarts
-N = 132   # most color slots a light uses; the H805D has 132 bulbs and stretches fewer colors over them in pairs
+N = 255   # most colors one razer packet holds (count byte); a strip stretches fewer colors over its bulbs in pairs
 # Streaming slots, not physical LED counts: docs/protocol.md (H805D), OpenRGB's Govee table (H619A).
 MODELS = {"H805D": {"bulbs": 132, "razer": True}, "H619A": {"bulbs": 20, "razer": True},
           "H6008": {"bulbs": 1, "razer": False}}  # false = no verified streaming support in this app
@@ -87,7 +87,9 @@ def short(dev):
 
 
 def capability(dev):
-    return MODELS.get((lights.get(dev) or found.get(dev) or {}).get("sku"), BASIC)
+    cap = MODELS.get((lights.get(dev) or found.get(dev) or {}).get("sku"), BASIC)
+    n = (lights.get(dev) or {}).get("bulbs")  # the user's own count: strings can be unplugged or added
+    return dict(cap, bulbs=n) if n and cap["razer"] else cap
 
 
 def light_settings(key, p):
@@ -99,8 +101,8 @@ def light_settings(key, p):
     return clean(p, cap["bulbs"])
 
 
-def add_light(dev, name, sku="", addr=""):
-    lights[dev] = {"name": name, "sku": sku, "ip": addr}
+def add_light(dev, name, sku="", addr="", bulbs=None):
+    lights[dev] = {"name": name, "sku": sku, "ip": addr} | ({"bulbs": bulbs} if bulbs else {})
     st.setdefault(dev, dict(DEFAULT, **light_settings(dev, {}), frame=[[0, 0, 0]] * capability(dev)["bulbs"], error=None, said=None, history=[]))
     schedule.setdefault(dev, {"use": True, "timers": []})
 
@@ -394,10 +396,10 @@ def load():
     lan_asked = data.get("_lan_asked") is True
     for dev, v in section("_lights").items():
         if (not isinstance(dev, str) or not 0 < len(dev) <= 64 or not isinstance(v, dict) or
-            any(not isinstance(v.get(x, ""), str) for x in ("name", "sku", "ip"))):
+            any(not isinstance(v.get(x, ""), str) for x in ("name", "sku", "ip")) or not ok_bulbs(v.get("bulbs"))):
             bad = True
             continue
-        add_light(dev, (v.get("name") or "Light")[:MAX_NAME], v.get("sku", ""), v.get("ip", ""))
+        add_light(dev, (v.get("name") or "Light")[:MAX_NAME], v.get("sku", ""), v.get("ip", ""), v.get("bulbs"))
     if data.get("_location") is not None:
         try:
             location = clean_location(*data["_location"])
@@ -485,6 +487,8 @@ def clean(p, n=N):
         raise ValueError(f"effect must be one of {EFFECTS}")
     if "animation" in p and p["animation"] is not None:
         p["animation"] = clean_animation(p["animation"], n)
+        if p.get("effect", "custom") == "custom":  # effects and their previews use the animation's own colors, not the old gold/white
+            p["colors"] = list({tuple(c): c for f in p["animation"]["frames"] for c in f["pattern"]}.values())[:6]
     if "colors" in p:
         cs = [[max(0, min(255, int(v))) for v in c][:3] for c in p["colors"]][:6]
         if not cs or any(len(c) != 3 for c in cs):
@@ -806,8 +810,12 @@ def discover():
     return seen
 
 
+def ok_bulbs(n):
+    return n is None or type(n) is int and 1 <= n <= N
+
+
 def save_lights(items):
-    """Setup and rename: [{"id", "name"}, ...]. New ids must come from the last scan."""
+    """Setup and rename: [{"id", "name", "bulbs"?}, ...]. New ids must come from the last scan."""
     if not isinstance(items, list) or not 0 < len(items) <= 50:
         raise ValueError("Pick at least one light.")
     named = []
@@ -819,12 +827,21 @@ def save_lights(items):
             raise ValueError("That light is no longer on the network. Tap Scan again.")
         if not name:
             raise ValueError("Give each light a name.")
-        named.append((dev, name))
+        if not ok_bulbs(it.get("bulbs")):
+            raise ValueError(f"Bulbs must be a whole number from 1 to {N}.")
+        named.append((dev, name, it.get("bulbs")))
     new = []
     with lock:
-        for dev, name in named:
+        for dev, name, bulbs in named:
             if dev in lights:
                 lights[dev]["name"] = name
+                if bulbs and bulbs != capability(dev)["bulbs"] and capability(dev)["razer"]:
+                    lights[dev]["bulbs"] = bulbs
+                    try:
+                        st[dev].update(light_settings(dev, look(st[dev])))
+                    except ValueError:  # an animation block longer than the new strip
+                        st[dev].update(light_settings(dev, dict(look(st[dev]), effect="solid", animation=None)))
+                    st[dev]["frame"] = [[0, 0, 0]] * bulbs
             else:
                 add_light(dev, name, found[dev]["sku"], found[dev]["ip"])
                 new.append(dev)
@@ -1009,7 +1026,7 @@ def observe_power(dev, power, now, stamp):
         events.append({"at": now.isoformat(timespec="seconds"), "on": power})
         paused.add(dev)
         st[dev]["on"] = power
-        st[dev]["frame"] = [[0, 0, 0]] * N
+        st[dev]["frame"] = [[0, 0, 0]] * capability(dev)["bulbs"]
         save()
 
 
