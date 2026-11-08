@@ -101,8 +101,8 @@ class AskChecks(unittest.TestCase):
 
     def test_bad_specs_and_batches_change_nothing(self):
         valid = {"frames": [{"pattern": [[255, 0, 0]], "duration": 1}]}
-        bad = [None, {}, {"frames": []}, {"frames": valid["frames"] * 17}, dict(valid, shift=85), dict(valid, block=0), dict(valid, block=True), dict(valid, motion="exec"), dict(valid, code="x")]
-        for field, value in (("pattern", [[256, 0, 0]]), ("pattern", [[True, 0, 0]]), ("pattern", [[1, 2]]), ("pattern", [[0, 0, 0]] * 85), ("duration", .01), ("duration", float("nan")), ("duration", 61), ("fade", 2)):
+        bad = [None, {}, {"frames": []}, {"frames": valid["frames"] * 17}, dict(valid, shift=133), dict(valid, block=0), dict(valid, block=True), dict(valid, motion="exec"), dict(valid, code="x")]
+        for field, value in (("pattern", [[256, 0, 0]]), ("pattern", [[True, 0, 0]]), ("pattern", [[1, 2]]), ("pattern", [[0, 0, 0]] * 133), ("duration", .01), ("duration", float("nan")), ("duration", 61), ("fade", 2)):
             f = dict(valid["frames"][0]); f[field] = value; bad.append({"frames": [f]})
         for spec in bad:
             before = copy.deepcopy((app.st, app.schedule, app.themes))

@@ -12,9 +12,9 @@ APP_VERSION = update.settings()['version']
 
 HERE = Path(__file__).parent
 SAVE = Path(os.environ.get("GOVEE_STATE", HERE / "state.json"))   # lights, last look + history per light, themes, schedule; survives restarts
-N = 84    # most colors one razer packet holds (length byte = 3*N+2 <= 255)
+N = 132   # most color slots a light uses; the H805D has 132 bulbs and stretches fewer colors over them in pairs
 # Streaming slots, not physical LED counts: docs/protocol.md (H805D), OpenRGB's Govee table (H619A).
-MODELS = {"H805D": {"bulbs": 84, "razer": True}, "H619A": {"bulbs": 20, "razer": True},
+MODELS = {"H805D": {"bulbs": 132, "razer": True}, "H619A": {"bulbs": 20, "razer": True},
           "H6008": {"bulbs": 1, "razer": False}}  # false = no verified streaming support in this app
 BASIC = MODELS["H6008"]
 FPS = 12
@@ -181,7 +181,8 @@ def razer(key, raw):
 
 def razer_frame(colors):
     body = [0xB0, 0x00, len(colors)] + [max(0, min(255, int(v))) for c in colors for v in c]  # 0x00 = no blend
-    return [0xBB, 0x00, len(body) - 1] + body
+    n = len(body) - 1  # 16-bit length: 84+ colors need the high byte
+    return [0xBB, n >> 8, n & 255] + body
 
 
 ARM = [0xBB, 0x00, 0x01, 0xB1, 0x01]  # per-bulb mode on; re-sending it while streaming blacks the strip out
@@ -1600,7 +1601,7 @@ class H(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     f = razer_frame([[1, 2, 3]])
     assert f == [0xBB, 0, 5, 0xB0, 0, 1, 1, 2, 3], f
-    assert 3 * N + 2 <= 255
+    assert razer_frame([[0, 0, 0]] * 132)[:6] == [0xBB, 0x01, 0x8E, 0xB0, 0, 132]  # bytes the H805D showed one per bulb (Nov 7)
     for e in EFFECTS:
         for t in (0.0, 1.7, 123.4):
             fr = render(dict(DEFAULT, effect=e, colors=[GOLD, SILVER, [9, 9, 9]]), t)

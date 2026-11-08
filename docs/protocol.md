@@ -17,8 +17,8 @@ This is what the app uses. LAN Control must be on for each light in the Govee Ho
 A razer frame is `BB 00 <length> <payload>`, then one byte that XORs all the bytes before it. The whole thing is base64-encoded into `pt`.
 
 - Turn per-bulb mode on: payload `B1 01`, so `bb 00 01 b1 01 0a`. Off: `B1 00`.
-- Colors: payload `B0 00 <count> R G B R G B ...`. The `00` turns off blending between frames. The length is one byte, so a frame holds at most 84 colors (3 × 84 + 2 = 254).
-- The app sends 84 colors to an H805D (20 to an H619A) 12 times a second. The H805D reports 132 LED chips; how it spreads 84 colors over them was not measured.
+- Colors: payload `B0 00 <count> R G B R G B ...`. The `00` turns off blending between frames. The length is two bytes (`BB <hi> <lo>`), so a frame can hold more than 84 colors.
+- The app sends 132 colors to an H805D (20 to an H619A) 12 times a second. The H805D has 132 bulbs. Sent 84 colors, it stretched them: the first 48 colors lit 2 bulbs each, the last 36 lit 1 each (tested Nov 7, 2026). Sent 132, every bulb is its own color.
 
 What we learned on real strips:
 

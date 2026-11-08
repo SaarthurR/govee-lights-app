@@ -42,7 +42,7 @@ Add, rename or remove lights later with **Manage lights** at the top of the page
 
 | Level | Model | What works |
 | --- | --- | --- |
-| Tested | H805D | Per-bulb effects (84 color slots), paint, power, brightness, timers. |
+| Tested | H805D | Per-bulb effects (132 bulbs, each its own color), paint, power, brightness, timers. |
 | Should work | H619A | Per-bulb effects (20 color slots) from [OpenRGB's model table](https://github.com/CalcProgrammer1/OpenRGB/blob/master/Controllers/GoveeController/RGBController_Govee.cpp#L38-L58); not tested on real hardware. |
 | Basic | Other models with LAN Control | On/off, brightness, one solid color and timers. |
 
