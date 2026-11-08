@@ -154,4 +154,4 @@ PY
   fi
   stopped=0
 }
-main "$@" # A cut-off download runs nothing.
+main "$@"; exit # A cut-off download runs nothing; exit here, because an update overwrites this file while it runs.
