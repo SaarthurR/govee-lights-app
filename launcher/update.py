@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import ssl
 import subprocess
 import sys
@@ -40,12 +41,12 @@ def check(config, force=False, restart=None):
     checked = HERE / '.last-update-check'
     if not force and checked.exists() and time.time() - checked.stat().st_mtime < 86400:
         return False
-    checked.touch()
     try:
+        checked.touch()
         with urlopen(config.get('update_url', API), timeout=10, context=CERTS) as response:
             sha = json.load(response)['sha']
         if not re.fullmatch('[0-9a-f]{40}', sha):
-            return False
+            raise ValueError('Invalid update commit: ' + str(sha))
         if sha == settings()['version'] or not settings()['enabled']:
             return False
         env = dict(os.environ, **config['env'], HOME=config['home'], GOVEE_VERSION=sha, GOVEE_PYTHON=PYTHON)
@@ -60,23 +61,44 @@ def check(config, force=False, restart=None):
             command = ['sh', str(HERE / 'install.sh'), '--update-only']
         # The installed service stays alive until installation succeeds. Keep a
         # rollback copy of code, excluding state and files owned by running processes.
-        keep = {'state.json', '.server.lock', 'lights.log', '.auto-update-off', '.last-update-check', '.check-update', '.stop-server'}
+        keep = {'state.json', 'state.json.bad', '.server.lock', 'lights.log', '.auto-update-off', '.last-update-check', '.check-update', '.stop-server'}
         state = Path(env.get('GOVEE_STATE', HERE / 'state.json')).resolve()
         if state.parent == HERE:
-            keep.add(state.name)
+            keep.update({state.name, state.name + '.bad'})
         with tempfile.TemporaryDirectory(prefix='lights-update-') as temp:
             backup = Path(temp) / 'old'
             shutil.copytree(HERE, backup, ignore=lambda directory, names: keep if Path(directory) == HERE else {'__pycache__'})
             restarting = False
             try:
-                subprocess.run(command, env=env, cwd=temp, check=True, timeout=180,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **HIDDEN)
+                with (HERE / 'lights.log').open('a') as log:
+                    if os.name == 'nt':
+                        subprocess.run(command, env=env, cwd=temp, check=True, timeout=180,
+                                       stdout=log, stderr=subprocess.STDOUT, **HIDDEN)
+                    else:
+                        process = subprocess.Popen(command, env=env, cwd=temp, start_new_session=True,
+                                                   stdout=log, stderr=subprocess.STDOUT)
+                        try:
+                            code = process.wait(timeout=180)
+                        except subprocess.TimeoutExpired:
+                            try:
+                                os.killpg(process.pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                            process.wait()
+                            raise
+                        if code:
+                            raise subprocess.CalledProcessError(code, command)
                 if not settings()['enabled']:
                     raise RuntimeError('Auto-update was turned off')
                 if restart:
                     restarting = True
                     restart()
-            except Exception:
+            except Exception as exc:
+                try:
+                    with (HERE / 'lights.log').open('a') as log:
+                        log.write(f'Update failed: {exc}\n')
+                except OSError:
+                    pass
                 for path in HERE.iterdir():
                     if path.name not in keep:
                         if path.is_dir(): shutil.rmtree(path)
@@ -87,7 +109,17 @@ def check(config, force=False, restart=None):
                                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, **HIDDEN)
                 if restart and restarting:
                     restart()
-                return False
+                raise
         return True
-    except Exception:
+    except Exception as exc:
+        try:
+            with (HERE / 'lights.log').open('a') as log:
+                log.write(f'Update failed: {exc}\n')
+        except OSError:
+            pass
+        try:
+            retry = time.time() - 86400 + 3600
+            os.utime(checked, (retry, retry))
+        except OSError:
+            pass
         return False  # Offline, bad downloads and failed installs leave the running app alone.
