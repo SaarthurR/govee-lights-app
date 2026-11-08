@@ -43,7 +43,7 @@ BUILTIN = dict(PRESETS)
 MAX_BODY, MAX_THEMES, MAX_NAME = 65536, 60, 30
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-lock = threading.Lock()
+lock = threading.RLock()
 scan_lock = threading.Lock()  # one LAN scan at a time: two sockets on port 4002 would split the replies
 lights = {}  # saved lights, in picker order: Govee device id -> {"name", "sku", "ip"}
 found = {}   # every Govee light that answered the last scan: device id -> {"sku", "ip"}
@@ -359,41 +359,122 @@ def save():
 
 
 def load():
+    bad = False
+    def keep_bad():
+        backup = SAVE.with_name(SAVE.name + ".bad")
+        if not backup.exists():
+            shutil.copy2(SAVE, backup)
+            backup.chmod(0o600)
     try:
         data = json.loads(SAVE.read_text())
-    except (OSError, ValueError):
+    except OSError:
         return
+    except ValueError:
+        keep_bad()
+        return
+    if not isinstance(data, dict):
+        keep_bad()
+        return
+    def section(name):
+        nonlocal bad
+        value = data.get(name, {})
+        if not isinstance(value, dict):
+            bad = True
+            return {}
+        return value
     global location, govee_key, ask_on, lan_asked
-    govee_key = str(data.get("_govee_key") or "")
+    govee_key = data.get("_govee_key", "")
+    if not isinstance(govee_key, str):
+        bad, govee_key = True, ""
+    for name in ("_ask", "_lan_asked"):
+        if name in data and type(data[name]) is not bool:
+            bad = True
     ask_on = data.get("_ask") is not False
     lan_asked = data.get("_lan_asked") is True
-    outside.update(data.get("_outside") or {})
-    paused.update(data.get("_paused") or [])
-    for dev, v in (data.get("_lights") or {}).items():
-        add_light(str(dev), str(v.get("name") or "Light")[:MAX_NAME], str(v.get("sku", "")), str(v.get("ip", "")))
-    try:
-        location = clean_location(*data["_location"])
-    except (KeyError, TypeError, ValueError):
-        pass
-    for k, v in (data.get("_schedule") or {}).items():
-        if k in schedule:
-            schedule[k] = migrate(v)
-    for name, p in (data.get("_themes") or {}).items():
+    for dev, v in section("_lights").items():
+        if (not isinstance(dev, str) or not 0 < len(dev) <= 64 or not isinstance(v, dict) or
+            any(not isinstance(v.get(x, ""), str) for x in ("name", "sku", "ip"))):
+            bad = True
+            continue
+        add_light(dev, (v.get("name") or "Light")[:MAX_NAME], v.get("sku", ""), v.get("ip", ""))
+    if data.get("_location") is not None:
         try:
-            themes[str(name)[:40]] = clean(dict(p))
-        except (ValueError, TypeError):
-            pass  # skip a broken theme, keep the rest
-    for k, d in data.items():
-        if k in st:
-            st[k].update({x: v for x, v in d.get("look", {}).items() if x in KEYS})
-            history = d.get("history", [])
+            location = clean_location(*data["_location"])
+        except (TypeError, ValueError):
+            bad = True
+    for k, v in section("_schedule").items():
+        if k in schedule:
             try:
-                st[k].update(light_settings(k, look(st[k])))
-            except ValueError:  # an older save may have treated this model as an 84-slot strip
-                previous = look(st[k])
-                st[k].update(light_settings(k, dict(previous, effect="solid", animation=None)))
-                history = history + [previous]  # keep the original animation in the saved history
-            st[k]["history"] = history[-HISTORY:]
+                if (not isinstance(v, dict) or type(v.get("use", True)) is not bool or
+                    "timers" in v and not isinstance(v["timers"], list)):
+                    raise ValueError("Invalid saved schedule")
+                schedule[k] = migrate(v)
+                if "timers" in v and len(schedule[k]["timers"]) != len(v["timers"]):
+                    bad = True
+            except (ValueError, TypeError, AttributeError):
+                bad = True
+    for name, p in section("_themes").items():
+        try:
+            if not isinstance(p, dict):
+                raise ValueError("Invalid saved theme")
+            themes[str(name)[:40]] = clean(p)
+        except (ValueError, TypeError, OverflowError):
+            bad = True
+    for k in st:
+        if k not in data or not isinstance(data[k], dict):
+            bad = True
+            st[k]["on"] = False
+            continue
+        d = data[k]
+        history = d.get("history", [])
+        if not isinstance(history, list):
+            bad, history = True, []
+        valid = []
+        for h in history[-HISTORY:]:
+            try:
+                if not isinstance(h, dict):
+                    raise ValueError("Invalid saved history")
+                valid.append(clean(dict(DEFAULT, **h)))
+            except (ValueError, TypeError, OverflowError):
+                bad = True
+        try:
+            raw = d.get("look", {})
+            if not isinstance(raw, dict):
+                raise ValueError("Invalid saved look")
+            previous = clean(dict(DEFAULT, **raw))
+            try:
+                current = light_settings(k, previous)
+            except ValueError:  # older saves may have treated a smaller strip as an 84-slot strip
+                current = light_settings(k, dict(previous, effect="solid", animation=None))
+                valid.append(previous)
+            st[k].update(current)
+        except (ValueError, TypeError, OverflowError):
+            bad = True
+            st[k]["on"] = False  # a corrupt look must not turn a light on at startup
+        st[k]["history"] = valid[-HISTORY:]
+    for k, events in section("_outside").items():
+        if k not in st:
+            continue
+        if not isinstance(events, list):
+            bad = True
+            continue
+        valid = []
+        for event in events[-500:]:
+            try:
+                if not isinstance(event, dict) or type(event.get("on")) is not bool:
+                    raise ValueError("Invalid power event")
+                dt.datetime.fromisoformat(event["at"])
+                valid.append({"at": event["at"], "on": event["on"]})
+            except (KeyError, ValueError, TypeError):
+                bad = True
+        outside[k] = valid
+    saved_paused = data.get("_paused", [])
+    if not isinstance(saved_paused, list) or any(not isinstance(k, str) for k in saved_paused):
+        bad = True
+    else:
+        paused.update(k for k in saved_paused if k in st)
+    if bad:
+        keep_bad()
 
 
 def clean(p, n=N):
@@ -409,7 +490,7 @@ def clean(p, n=N):
             raise ValueError("colors must be a list of [r,g,b]")
         p["colors"] = cs
     if p.get("bulbs") is not None:
-        b = [[max(0, min(255, int(v))) for v in c][:3] for c in p["bulbs"]][:n]
+        b = rgb_list(p["bulbs"], N)[:n]
         p["bulbs"] = b + [[0, 0, 0]] * (n - len(b))
     for k in ("speed", "amount"):
         if k in p:
@@ -417,7 +498,8 @@ def clean(p, n=N):
     if "brightness" in p:
         p["brightness"] = max(1, min(100, int(p["brightness"])))
     if "on" in p:
-        p["on"] = bool(p["on"])
+        if type(p["on"]) is not bool:
+            raise ValueError("Power must be true or false.")
     return p
 
 
@@ -437,20 +519,24 @@ def push(key, p, remember=True):
         before = look(s)
         s.update(p)
         s["frame"] = [[int(v) for v in c] for c in render(s, time.time(), capability(key)["bulbs"])]
-        if remember and any(s[k] != before[k] for k in KEYS if k not in ("on", "brightness")):
+        added = remember and any(s[k] != before[k] for k in KEYS if k not in ("on", "brightness"))
+        if added:
             s["history"] = (s["history"] + [before])[-HISTORY:]  # only looks go in undo, not on/off taps
         s["error"] = None
         save()
     if s["on"]:
         razer(key, ARM)
+    return added
 
 
 def undo(key):
     with lock:
         if not st[key]["history"]:
             raise ValueError("Nothing to undo.")
-        prev = st[key]["history"].pop()
-    push(key, prev, remember=False)
+        prev = st[key]["history"][-1]
+        push(key, prev, remember=False)
+        st[key]["history"].pop()
+        save()
 
 
 def streamer():
@@ -575,7 +661,7 @@ def migrate(v):
     out = []
     for t in timers[:MAX_TIMERS]:
         try:
-            out.append(clean_timer(t, t, strict=False))  # a theme deleted since then just means the last look
+            out.append(clean_timer(t, t, strict=False, location_set=True))  # a theme deleted since then just means the last look
         except (ValueError, TypeError):
             pass  # skip a broken timer, keep the rest
     return {"use": v.get("use") is not False, "timers": out}  # saved before the switch: on
@@ -608,22 +694,33 @@ def next_run(timers, now):
     return min(runs, key=lambda r: r[0], default=None)
 
 
+fired = set()  # (light, timer id, local date), including the repeated DST hour
+
+
 def schedule_tick(last, now):
-    for k, sc in list(schedule.items()):
-        if not sc["use"]:
-            continue  # switched off: Govee Home timers run this light, the app never turns it on or off
-        for t in sc["timers"]:
-            at = t["enabled"] and when(t["time"], now.date())
-            if at and last < at <= now and due(sc["timers"], t, at):  # crossed it since the last check, on a chosen day
-                p = {"on": t["action"] == "on"}
-                if t.get("theme"):
-                    p = dict(themes.get(t["theme"]) or BUILTIN.get(t["theme"]) or {}, **p)  # deleted since: last look
-                try:
-                    push(k, p)
-                except (OSError, ValueError) as e:
-                    st[k]["error"] = f"schedule: {e}"
-                except KeyError:
-                    pass  # the light was forgotten a moment ago
+    with lock:
+        fired.intersection_update({x for x in fired if x[2] >= now.date() - dt.timedelta(days=1)})
+        runs = []
+        day = last.date() - dt.timedelta(days=1)  # sunset offsets can spill into a neighboring date
+        while day <= now.date() + dt.timedelta(days=1):
+            for k, sc in schedule.items():
+                if not sc["use"]:
+                    continue
+                for t in sc["timers"]:
+                    at = t["enabled"] and when(t["time"], day)
+                    occurrence = (k, t["id"], day)
+                    if at and last < at <= now and due(sc["timers"], t, at) and occurrence not in fired:
+                        runs.append((at, k, t, occurrence))
+            day += dt.timedelta(days=1)
+        for at, k, t, occurrence in sorted(runs, key=lambda r: r[0]):
+            fired.add(occurrence)
+            p = {"on": t["action"] == "on"}
+            if t.get("theme"):
+                p = dict(themes.get(t["theme"]) or BUILTIN.get(t["theme"]) or {}, **p)
+            try:
+                push(k, p)
+            except (OSError, ValueError) as e:
+                st[k]["error"] = f"schedule: {e}"
 
 
 def schedule_loop():
@@ -895,9 +992,15 @@ def observe_power(dev, power, now, stamp):
                 st[dev]["on"] = power
                 save()
             return  # first reading or a long gap gives no reliable change time
-        if power == previous[0]:
+        if stamp - command_at.get(dev, -1000) < 20:
             return
-        if previous[1] <= command_at.get(dev, -1000) or stamp - command_at.get(dev, -1000) < 20:
+        if power == previous[0]:
+            if st[dev]["on"] != power:
+                paused.add(dev)
+                st[dev]["on"] = power
+                save()
+            return
+        if previous[1] <= command_at.get(dev, -1000):
             return
         events = outside.setdefault(dev, [])
         cutoff = (now - dt.timedelta(days=35)).isoformat()
@@ -1068,6 +1171,16 @@ def ask_claude(keys, text):
 
 
 def apply_answer(answer, keys):
+    actions = answer.get("actions") if isinstance(answer, dict) else None
+    # Network actions take govee_lock before lock; keep them outside the batch lock.
+    if (isinstance(actions, list) and len(actions) == 1 and isinstance(actions[0], dict) and
+        actions[0].get("type") in ("flash", "reconnect", "forget_light", "scan", "save_lights", "govee_refresh", "govee_disconnect", "govee_scenes", "ask_use", "clear_chat")):
+        return _apply_answer(answer, keys)
+    with lock:
+        return _apply_answer(answer, keys)
+
+
+def _apply_answer(answer, keys):
     global location, ask_on
     # Validate the whole batch against copies before any device or saved-state change.
     if not isinstance(answer, dict) or set(answer) - {"say", "actions"} or not isinstance(answer.get("say"), str):
@@ -1077,7 +1190,9 @@ def apply_answer(answer, keys):
         raise ValueError("Claude must return up to 16 actions.")
     looks, saved = {k: look(v) for k, v in st.items()}, dict(themes)
     histories = {k: list(v["history"]) for k, v in st.items()}
+    before_histories = {k: list(h) for k, h in histories.items()}
     scheds = {k: dict(v, timers=list(v["timers"])) for k, v in schedule.items()}
+    changed_schedules = set()
     location_set = location is not None
     plan = []
     for a in actions:
@@ -1135,8 +1250,8 @@ def apply_answer(answer, keys):
             elif kind == "ask_use":
                 if type(a.get("use")) is not bool:
                     raise ValueError("Ask use must be true or false.")
-                ask_on = a["use"]
                 with lock:
+                    ask_on = a["use"]
                     save()
             else:
                 chat.update(at=0, turns=[])
@@ -1197,11 +1312,14 @@ def apply_answer(answer, keys):
             change_timers(scheds, targets, value.get("add", []), value.get("edit", []), value.get("delete", []), saved=saved, location_set=location_set)
             for k in targets:
                 scheds[k]["use"] = value.get("use", scheds[k]["use"])
+                changed_schedules.add(k)
         elif kind == "undo":
             if any(not histories[k] for k in targets):
                 raise ValueError("Nothing to undo.")
             for k in targets:
-                looks[k] = histories[k].pop()
+                previous = histories[k].pop()
+                light_settings(k, previous)
+                looks[k] = previous
         if kind in ("save_theme", "rename_theme", "delete_theme", "rename_light"):
             name = a.get("name")
             if not isinstance(name, str) or not name.strip() or len(name) > (30 if kind == "rename_light" else 40):
@@ -1225,8 +1343,10 @@ def apply_answer(answer, keys):
                     if new != name and new in saved:
                         raise ValueError("That theme name already exists.")
                     saved[new] = saved.pop(name)
-                    for sc in scheds.values():
-                        sc["timers"] = [dict(t, theme=new) if t.get("theme") == name else t for t in sc["timers"]]
+                    for k, sc in scheds.items():
+                        if any(t.get("theme") == name for t in sc["timers"]):
+                            sc["timers"] = [dict(t, theme=new) if t.get("theme") == name else t for t in sc["timers"]]
+                            changed_schedules.add(k)
                     value = (name, new)
                 else:
                     del saved[name]
@@ -1242,8 +1362,7 @@ def apply_answer(answer, keys):
                 if kind == "undo":
                     undo(k)
                 else:
-                    push(k, dict(value[k] if kind == "paint" else value))
-            changed = True
+                    changed = push(k, dict(value[k] if kind == "paint" else value)) or changed
         elif kind == "save_theme":
             save_theme(*value)
         elif kind == "rename_theme":  # keeps its place in My themes
@@ -1257,9 +1376,9 @@ def apply_answer(answer, keys):
             location = value
     if plan:
         with lock:
-            schedule.update(scheds)
+            schedule.update({k: scheds[k] for k in changed_schedules})
             save()
-    return answer["say"][:300], changed
+    return answer["say"][:300], changed and any(st[k]["history"] != h for k, h in before_histories.items())
 
 
 PREVIEWS = None
@@ -1387,10 +1506,14 @@ class H(BaseHTTPRequestHandler):
                     save()
                 return self.reply(200, {"ok": True})
             if self.path == "/api/theme":
-                light = body.get("light") if body.get("light") in st else next(iter(st), None)
-                if not body.get("settings") and not light:
-                    raise ValueError("Set up a light first.")
-                save_theme(body.get("name", ""), body.get("settings") or look(st[light]))
+                with lock:
+                    selected = body.get("light")
+                    light = selected if selected in st else next(iter(st), None)
+                    if not body.get("settings") and not light:
+                        raise ValueError("Set up a light first.")
+                    if selected == "all" and not body.get("settings") and any(look(s) != look(st[light]) for s in st.values()):
+                        raise ValueError("The lights have different looks. Pick one light to save its theme.")
+                    save_theme(body.get("name", ""), body.get("settings") or look(st[light]))
                 return self.reply(200, {"ok": True})
             if self.path == "/api/theme/rename":  # same checks as Claude's rename; timers follow the new name
                 apply_answer({"say": "", "actions": [{"type": "rename_theme", "name": body.get("name"), "new": body.get("new")}]}, [])
@@ -1432,8 +1555,13 @@ class H(BaseHTTPRequestHandler):
                     push(k, p)
                 return self.reply(200, {"ok": True})
             if self.path == "/api/undo":
-                for k in keys:
-                    undo(k)
+                with lock:
+                    if any(not st[k]["history"] for k in keys):
+                        raise ValueError("Nothing to undo.")
+                    for k in keys:
+                        light_settings(k, st[k]["history"][-1])
+                    for k in keys:
+                        undo(k)
                 return self.reply(200, {"ok": True})
             if self.path == "/api/schedule":  # {"light", "add": [timer], "edit": [{"id", ...changes}], "delete": [id]}
                 with lock:
@@ -1443,9 +1571,9 @@ class H(BaseHTTPRequestHandler):
                     save()
                 return self.reply(200, {"ok": True})
             if self.path == "/api/schedule/use":
-                for k in keys:
-                    schedule[k]["use"] = body.get("use") is True
                 with lock:
+                    for k in keys:
+                        schedule[k]["use"] = body.get("use") is True
                     save()
                 return self.reply(200, {"ok": True})
             if self.path == "/api/reconnect":
