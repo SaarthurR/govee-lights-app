@@ -17,18 +17,21 @@ main() {
   for arg in "$@"; do
     case "$arg" in --update-only) update=1;; --uninstall) uninstall=1;; --purge) uninstall=1; purge=1;; *) echo "Unknown option: $arg"; exit 1;; esac
   done
-  if [ "$update" = 0 ] && [ "$service" = launchd ] && [ -f "$agent" ]; then
-    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-  elif [ "$update" = 0 ] && [ -f "$unit" ]; then
-    if [ "$service" != systemd ]; then
-      echo "Existing Lights service needs a systemd user session. Run this from your logged-in desktop."; exit 1
+  stop_lights() {
+    if [ "$update" = 0 ] && [ "$service" = launchd ] && [ -f "$agent" ]; then
+      launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+    elif [ "$update" = 0 ] && [ -f "$unit" ]; then
+      if [ "$service" != systemd ]; then
+        echo "Existing Lights service needs a systemd user session. Run this from your logged-in desktop."; exit 1
+      fi
+      systemctl --user disable --now govee-lights.service
     fi
-    systemctl --user disable --now govee-lights.service
-  fi
-  if [ "$update" = 0 ] && [ -f "$dir/launcher/launch.py" ]; then
-    "${GOVEE_PYTHON:-python3}" "$dir/launcher/launch.py" --stop
-  fi
+    if [ "$update" = 0 ] && [ -f "$dir/launcher/launch.py" ]; then
+      "${GOVEE_PYTHON:-python3}" "$dir/launcher/launch.py" --stop
+    fi
+  }
   if [ "$uninstall" = 1 ]; then
+    stop_lights
     rm -f "$agent" "$unit"
     rm -rf "$HOME/Applications/Govee Lights.app"
     rm -f "$HOME/.local/share/applications/govee-lights.desktop"
@@ -45,13 +48,42 @@ main() {
     echo "Lights needs Python 3.10 or newer: https://www.python.org/downloads/"; exit 1
   fi
   py=$("$py" -c 'import sys; print(sys.executable)')
-  first=${PORT:-$(cat "$dir/.port" 2>/dev/null || echo 8765)}; port=$first
-  while [ "$update" = 0 ] && "$py" -c 'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1)' "$port" 2>/dev/null; do
-    if [ "$port" -ge $((first + 5)) ]; then echo "Ports $first to $port are busy."; exit 1; fi
-    port=$((port + 1))
-  done
   tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+  stopped=0
+  finish() {
+    result=$?
+    trap - EXIT HUP INT TERM
+    set +e
+    if [ "$result" != 0 ] && [ "$stopped" = 1 ] && [ -d "$tmp/old" ]; then
+      echo "Install failed; restoring the previous Lights app." >&2
+      restored=1
+      stop_lights || restored=0
+      find "$dir" -mindepth 1 -maxdepth 1 ! -name state.json ! -name state.json.bad ! -name .server.lock ! -name lights.log -exec rm -rf {} + || restored=0
+      cp -R "$tmp/old/." "$dir/" || restored=0
+      if [ -f "$tmp/agent" ]; then cp "$tmp/agent" "$agent" || restored=0; fi
+      if [ -f "$tmp/unit" ]; then cp "$tmp/unit" "$unit" || restored=0; fi
+      if [ -d "$tmp/mac-app" ]; then
+        rm -rf "$HOME/Applications/Govee Lights.app" || restored=0
+        cp -R "$tmp/mac-app" "$HOME/Applications/Govee Lights.app" || restored=0
+      fi
+      if [ -f "$tmp/desktop" ]; then cp "$tmp/desktop" "$HOME/.local/share/applications/govee-lights.desktop" || restored=0; fi
+      if [ "$restored" = 1 ]; then
+        case "$service" in
+          launchd) launchctl bootstrap "gui/$(id -u)" "$agent" || restored=0;;
+          systemd) systemctl --user daemon-reload && systemctl --user enable --now govee-lights.service || restored=0;;
+          foreground) "$py" "$dir/launcher/launch.py" --url >/dev/null 2>&1 || restored=0;;
+        esac
+      fi
+      if [ "$restored" = 0 ]; then
+        echo "Recovery failed. Previous files are kept in $tmp" >&2
+        exit "$result"
+      fi
+    fi
+    rm -rf "$tmp"
+    exit "$result"
+  }
+  trap finish EXIT
+  trap 'exit 1' HUP INT TERM
   version=${GOVEE_VERSION:-}
   if [ -z "$version" ] && [ -z "${GOVEE_TARBALL:-}" ]; then
     # The GitHub API can rate-limit; then install main and let auto-update record the commit later.
@@ -62,6 +94,23 @@ main() {
   tar -xzf "$tmp/app.tar.gz" -C "$tmp/app" --strip-components=1
   test -f "$tmp/app/server.py"
   "$py" -m py_compile "$tmp/app/server.py" "$tmp/app/launcher/launch.py" "$tmp/app/launcher/update.py" "$tmp/app/launcher/build.py"
+  if [ "$update" = 0 ]; then
+    if [ -d "$dir" ]; then
+      cp -R "$dir" "$tmp/old"
+      rm -f "$tmp/old/state.json" "$tmp/old/state.json.bad" "$tmp/old/.server.lock" "$tmp/old/lights.log"
+    fi
+    if [ -f "$agent" ]; then cp "$agent" "$tmp/agent"; fi
+    if [ -f "$unit" ]; then cp "$unit" "$tmp/unit"; fi
+    if [ -d "$HOME/Applications/Govee Lights.app" ]; then cp -R "$HOME/Applications/Govee Lights.app" "$tmp/mac-app"; fi
+    if [ -f "$HOME/.local/share/applications/govee-lights.desktop" ]; then cp "$HOME/.local/share/applications/govee-lights.desktop" "$tmp/desktop"; fi
+    stopped=1
+    stop_lights
+  fi
+  first=${PORT:-$(cat "$dir/.port" 2>/dev/null || echo 8765)}; port=$first
+  while [ "$update" = 0 ] && "$py" -c 'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1)' "$port" 2>/dev/null; do
+    if [ "$port" -ge $((first + 5)) ]; then echo "Ports $first to $port are busy."; exit 1; fi
+    port=$((port + 1))
+  done
   mkdir -p "$dir"
   # Preserve saved state even if an archive accidentally contains it.
   rm -f "$tmp/app/state.json"
@@ -103,5 +152,6 @@ PY
   else
     "$py" "$dir/launcher/launch.py" >/dev/null 2>&1 &
   fi
+  stopped=0
 }
 main "$@" # A cut-off download runs nothing.
