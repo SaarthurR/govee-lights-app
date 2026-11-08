@@ -14,6 +14,10 @@
 <style>
   :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1f; --mute:#66666b; --line:#e8e6e1; --soft:#f1efeb; --bad:#c0392b; --ease-out:cubic-bezier(.23, 1, .32, 1); }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  :root { accent-color:var(--ink); caret-color:var(--ink); }
+  ::selection { background:#e2ddd2; color:var(--ink); }
+  select.field { -webkit-appearance:none; appearance:none; padding-right:34px; cursor:pointer;
+    background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%2366666b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center / 12px; }
   body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
   main { max-width:820px; margin:0 auto; padding:max(20px, env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom)); }
   header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
@@ -42,13 +46,20 @@
   @media (pointer:coarse) { input[type=range] { --t:28px; } }
   .ctl b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
   .ctl label.small { margin-bottom:2px; }
-  .btn { border:1px solid var(--line); background:#fff; border-radius:12px; padding:10px 16px; font:inherit; font-size:15px; cursor:pointer; color:var(--ink); min-height:44px; }
+  /* buttons: .btn secondary, .dark primary, .quiet text-only, .danger red text; 44px tall, 36px inside settings rows */
+  .btn { position:relative; display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--line); background:var(--card); border-radius:12px; padding:0 16px; min-height:44px;
+    font:inherit; font-size:15px; font-weight:500; line-height:1.3; text-align:center; text-decoration:none; color:var(--ink); cursor:pointer; }
   .btn.dark { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .btn.quiet { background:none; border-color:transparent; }
+  .btn.danger { color:var(--bad); }
   .btn:disabled { opacity:.4; cursor:default; }
-  .power { width:52px; height:32px; margin:6px 0; border-radius:16px; border:0; background:#d9d7d2; position:relative; cursor:pointer; flex:none; transition:background .2s; }
-  .power::after { content:""; position:absolute; top:3px; left:3px; width:26px; height:26px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.2); transition:transform .2s; }
-  .power.on { background:#34c759; }
-  .power.on::after { transform:translateX(20px); }
+  .btn .i { width:18px; height:18px; margin:0 -2px; }
+  /* switch: a .power button, or a checkbox with .switch */
+  .power, .switch { -webkit-appearance:none; appearance:none; width:52px; height:32px; margin:6px 0; border-radius:16px; border:0; background:#d9d7d2; position:relative; cursor:pointer; flex:none; transition:background .2s; }
+  .power::after, .switch::after { content:""; position:absolute; top:3px; left:3px; width:26px; height:26px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.2); transition:transform .2s var(--ease-out); }
+  .power.on, .switch:checked { background:#34c759; }
+  .power.on::after, .switch:checked::after { transform:translateX(20px); }
+  .switch { margin:0; }
   #schedBody { border:0; padding:0; margin:0; min-width:0; }
   #schedBody:disabled { opacity:.45; pointer-events:none; }
   .pages { display:flex; gap:4px; background:#ebe9e4; padding:4px; border-radius:14px; margin-bottom:12px; }
@@ -68,14 +79,14 @@
   .wheel .col div.pick { color:var(--ink); font-weight:600; }
   .wheel .col:focus-visible { outline:none; }
   .wheel .col:focus-visible div.pick { text-decoration:underline 2px; text-underline-offset:6px; }  /* the column's mask would hide a ring */
-  .days { display:flex; gap:4px; }
-  .days button { flex:1; min-width:0; min-height:44px; border:1px solid var(--line); background:#fff; border-radius:12px; font:inherit; font-size:15px; color:var(--mute); cursor:pointer; }
-  .days button[aria-pressed=true] { background:var(--ink); border-color:var(--ink); color:#fff; font-weight:600; }
+  .days { display:flex; justify-content:space-between; gap:4px; margin-top:10px; }
+  .days button { flex:none; width:44px; height:44px; padding:0; border:0; background:var(--soft); border-radius:50%; font:inherit; font-size:15px; font-weight:500; color:var(--ink); cursor:pointer; }
+  .days button[aria-pressed=true] { background:var(--ink); color:#fff; font-weight:600; }
   .timer { display:flex; align-items:center; gap:12px; border-top:1px solid var(--line); }
   .timer:first-child { border-top:0; }
-  .timer .open { flex:1; min-width:0; min-height:64px; padding:10px 0; border:0; background:none; font:inherit; color:var(--ink); text-align:left; cursor:pointer; }
-  .timer .t { font-size:26px; font-weight:600; letter-spacing:-.02em; line-height:1.15; font-variant-numeric:tabular-nums; }
-  .timer .d { font-size:14px; color:var(--mute); margin-top:2px; }
+  .timer .open { flex:1; min-width:0; min-height:68px; padding:12px 0; border:0; background:none; font:inherit; color:var(--ink); text-align:left; cursor:pointer; }
+  .timer .t { font-size:24px; font-weight:600; letter-spacing:-.02em; line-height:1.15; font-variant-numeric:tabular-nums; }
+  .timer .d { font-size:14px; color:var(--mute); margin-top:3px; }
   .timer.off .t { color:var(--mute); }
   .timer .power::before { content:""; position:absolute; inset:-6px -4px; }  /* 44px hit area */
   .warn { background:#fff4de; color:#6b4300; border-radius:12px; padding:10px 12px; font-size:14px; margin:10px 0 0; text-wrap:pretty; }
@@ -85,7 +96,20 @@
   :is(#timerSheet, #askSheet)[open] .card { animation:rise 250ms ease-out both; }
   :is(#timerSheet, #askSheet) h2 { font-size:17px; font-weight:600; text-transform:none; letter-spacing:-.01em; color:var(--ink); }
   .summary { font-size:17px; font-weight:600; letter-spacing:-.01em; line-height:1.35; }
-  #timers > .summary { background:var(--soft); border-radius:12px; padding:10px 14px; margin:10px 0 4px; font-size:15px; }
+  label[for=useSched] { border-bottom:1px solid var(--line); }
+  #timers > .summary { margin:14px 0 2px; font-size:15px; font-weight:500; color:var(--mute); }
+  #addTimer { width:100%; margin-top:12px; }
+  /* timer sheet: one column, one gap */
+  .sheet { display:flex; flex-direction:column; gap:16px; }
+  .card.sheet > * { margin:0; }
+  .sheetrow { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .sheetrow > label { font-size:16px; }
+  .sheetrow > .field { width:auto; max-width:65%; }
+  .sheetrow .group-title { margin:0; }
+  #dayQuick { margin:0; flex-wrap:nowrap; }
+  #noSun { display:flex; align-items:center; gap:4px 10px; flex-wrap:wrap; }
+  .sheet-acts { flex-wrap:nowrap; margin-top:4px; }
+  #delTimer { margin-left:-12px; padding:0 12px; }
   .summary small { display:block; font-size:14px; font-weight:400; color:var(--mute); margin-top:4px; }
   body.basic [data-advanced] { display:none !important; }
   [hidden] { display:none !important; }
@@ -123,12 +147,26 @@
   .alert span { flex:1; min-width:160px; }
   .alert .btn { border-color:#f3c6c0; color:var(--bad); }
   .list { margin:8px 0 0; padding-left:20px; font-size:14px; line-height:1.5; }
-  details { margin-top:16px; border-top:1px solid var(--line); }
-  summary { cursor:pointer; font-size:15px; padding:14px 0 0; }
-  .setrow { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:52px; font-size:15px; cursor:default; }
-  .setrow + .setrow { border-top:1px solid var(--line); }
-  .setrow > .btn { flex:none; text-decoration:none; }
-  .setrow input[type=checkbox] { width:22px; height:22px; accent-color:var(--ink); }
+  /* settings rows: label left, one control right, hairlines between */
+  .setrow { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:56px; padding:8px 0; font-size:16px; }
+  label.setrow { cursor:pointer; }
+  .setrow > span:first-child { min-width:0; text-wrap:pretty; }
+  .setrow small { display:block; margin-top:2px; font-size:13px; color:var(--mute); }
+  #appVersion:not(:empty)::before { content:"Version "; }
+  .setrow .btn { flex:none; min-height:36px; padding:0 14px; border-radius:10px; font-size:14px; }
+  .setrow .btn::after { content:""; position:absolute; inset:-4px 0; }  /* 44px hit area */
+  .card h2 + .setrow { margin-top:-8px; }
+  :is(.setrow, details) + :is(.setrow, details) { border-top:1px solid var(--line); }
+  summary { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:56px; padding:8px 0; list-style:none; cursor:pointer; font-size:16px; }
+  summary::-webkit-details-marker { display:none; }
+  summary::after { content:""; flex:none; width:7px; height:7px; margin-right:6px; border:solid var(--mute); border-width:0 1.8px 1.8px 0; rotate:45deg; translate:0 -2px; transition:rotate 200ms var(--ease-out), translate 200ms var(--ease-out); }
+  details[open] > summary::after { rotate:225deg; translate:0 2px; }
+  details[open] { padding-bottom:12px; }
+  details > .hint:first-of-type { margin-top:0; }
+  #locForm { margin-top:2px; }
+  #goveeForm .field { margin:6px 0 0; }
+  #goveeForm .row { margin-top:14px; }
+  #goveeStatus:empty { margin:0; }
   body[data-view=settings] :is(#side, #tabs) { display:none; }
   /* chat: column-reverse keeps the log pinned to the newest bubble, even when it fills while the card is hidden */
   .logbox { display:flex; flex-direction:column-reverse; max-height:min(420px, 55dvh); margin-top:-8px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin;
@@ -251,8 +289,11 @@
   #qrBox.on { animation:fade 200ms ease-out both; }
   #qrBox.on .card { animation:rise 250ms ease-out both; }
   @media (hover:hover) {
-    .btn:not(:disabled):hover, .chip:hover, .days button[aria-pressed=false]:hover { border-color:#cfccc5; }
+    .btn:not(:disabled):hover, .chip:hover { border-color:#cfccc5; }
+    .btn.quiet:not(:disabled):hover, .linkbtn:not(:disabled):hover, .days button[aria-pressed=false]:hover { background:#e9e7e2; border-color:transparent; }
+    .btn.quiet.danger:not(:disabled):hover { background:#fdecea; }
     .btn.dark:not(:disabled):hover, .send:not(:disabled):hover { background:#3a3a3c; }
+    summary:hover::after { border-color:var(--ink); }
     .tile:not(.on):hover { border-color:#cfccc5; box-shadow:0 2px 8px rgba(0,0,0,.06); }
     .tabs button:not(.on):hover, .pages button:not(.on):hover, .seg button:not(.on):hover { color:var(--ink); }
     .sw:hover, .bulb:hover { scale:1.08; }
@@ -523,13 +564,14 @@
   <section data-page="schedule" hidden>
   <div class="card">
     <h2>Schedule <span class="sub" id="schedFor"></span></h2>
-    <label class="row" for="useSched" style="justify-content:space-between;flex-wrap:nowrap;min-height:44px;cursor:pointer;font-weight:500">Use this app's schedule<button class="power" id="useSched" aria-describedby="schedOffNote"></button></label>
-    <p class="hint" id="schedOffNote" style="margin-top:4px" hidden>Off. This app won't turn your lights on or off.</p>
+    <label class="setrow" for="useSched"><span>Use this app's schedule</span><button class="power" id="useSched" aria-describedby="schedOffNote"></button></label>
+    <p class="hint" id="schedOffNote" style="margin-top:0" hidden>Off. This app won't turn your lights on or off.</p>
     <fieldset id="schedBody">
     <div id="outsideWarnings" role="status"></div>
     <div id="timers"></div>
-    <button class="btn dark" id="addTimer" style="margin-top:12px;width:100%" onclick="openTimer()">+ Add timer</button>
+    <button class="btn dark" id="addTimer" onclick="openTimer()"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add timer</button>
     <p class="hint" id="timerCap" hidden>Up to 10 timers per light. Delete one to add another.</p>
+    </fieldset>
   </div>
   </section>
   <section data-page="settings" hidden>
@@ -542,7 +584,7 @@
     <h2>Location</h2>
     <div class="setrow"><span id="sunText">Not set. Sunset timers need it.</span><button class="btn" id="geoBtn" onclick="useMyLocation()" hidden>Use my location</button></div>
     <details id="locBox"><summary>Type it in</summary>
-      <form class="ask" id="locForm" style="margin-top:10px">
+      <form class="ask" id="locForm">
         <input id="loc" placeholder="37.77, -122.42" autocomplete="off" aria-label="Latitude, longitude" aria-describedby="locHint">
         <button class="btn dark">Save</button>
       </form>
@@ -551,25 +593,24 @@
   </div>
   <div class="card">
     <h2>Ask Claude</h2>
-    <div class="setrow"><span id="askState">Make looks and timers by typing</span><button class="btn" id="askUse" onclick="useAsk(!state.ask)" hidden></button></div>
-    <p class="hint" id="askGet" hidden>Needs <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a> on this computer.</p>
+    <label class="setrow" for="askUse"><span id="askState">Make looks and timers by typing</span><input type="checkbox" class="switch" role="switch" id="askUse" onchange="useAsk(this.checked)" hidden></label>
+    <p class="hint" id="askGet" style="margin:0 0 4px" hidden>Needs <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a> on this computer.</p>
   </div>
   <div class="card" id="account">
     <h2>Govee account <span class="sub">· optional</span></h2>
-    <p class="hint" style="margin:0 0 12px">Reads light and scene names. Never changes anything.</p>
     <form id="goveeForm">
-      <label class="small" for="goveeKey">Govee API key</label>
-      <input class="field" style="width:100%;margin:8px 0" id="goveeKey" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste API key" aria-describedby="keyHint">
-      <p class="hint" id="keyHint">In Govee Home: Profile → Settings → Apply for API key. Kept only on this computer.</p>
+      <label class="small" for="goveeKey">API key</label>
+      <input class="field" id="goveeKey" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste API key" aria-describedby="keyHint">
+      <p class="hint" id="keyHint">In Govee Home: Profile → Settings → Apply for API key. Read-only, kept on this computer.</p>
       <div class="row"><button class="btn dark" id="connectGovee">Connect Govee account</button>
-      <button type="button" class="btn" id="disconnectGovee" onclick="disconnectAccount()" hidden>Disconnect Govee</button></div>
+      <button type="button" class="btn quiet" id="disconnectGovee" onclick="disconnectAccount()" hidden>Disconnect</button></div>
     </form>
     <p class="hint" id="goveeStatus" role="status"></p>
   </div>
   <div class="card">
     <h2>App</h2>
-    <label class="setrow" for="autoUpdate"><span>Auto-update <span class="small" id="appVersion"></span></span><input type="checkbox" id="autoUpdate" checked onchange="post('/api/update', {enabled:this.checked})"></label>
-    <div class="setrow"><span>Found a bug?</span><a class="btn" id="feedback" href="https://github.com/SaarthurR/govee-lights-app/issues/new?labels=feedback" target="_blank" rel="noopener noreferrer">Send feedback</a></div>
+    <label class="setrow" for="autoUpdate"><span>Auto-update<small id="appVersion"></small></span><input type="checkbox" class="switch" role="switch" id="autoUpdate" checked onchange="post('/api/update', {enabled:this.checked})"></label>
+    <div class="setrow"><span>Found a bug?</span><a class="btn" id="feedback" href="https://github.com/SaarthurR/govee-lights-app/issues/new?labels=feedback" target="_blank" rel="noopener noreferrer">Send feedback<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9 8h7v7"/></svg></a></div>
     <details><summary>Lights turning on or off by themselves?</summary>
       <p class="hint">Timers and automations in the Govee Home app keep running. Check Timer and Automation for that light in Govee Home.</p>
       <ul class="list" id="outsideEvents"></ul>
@@ -582,20 +623,21 @@
     <input class="field" id="sheetInput" autocomplete="off" enterkeyhint="done" aria-labelledby="sheetTitle">
     <div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn" id="sheetNo">Cancel</button><button class="btn dark" id="sheetOk">OK</button></div>
   </div></dialog>
-  <dialog id="timerSheet" aria-labelledby="timerTitle"><div class="card">
+  <dialog id="timerSheet" aria-labelledby="timerTitle"><div class="card sheet">
     <h2 id="timerTitle" tabindex="-1" autofocus>Add timer</h2>
     <div class="seg" id="actSeg"><button data-v="on">Turn on</button><button data-v="off">Turn off</button></div>
-    <div class="seg" id="whenSeg" style="margin-top:12px"><button data-v="time">At a time</button><button data-v="sunset">At sunset</button></div>
+    <div class="seg" id="whenSeg"><button data-v="time">At a time</button><button data-v="sunset">At sunset</button></div>
+    <div class="wheel" id="timeWheel" role="group" aria-label="Time"></div>
+    <div class="ctl" id="offsetRow"><label class="small" for="offset"><b id="offsetVal" aria-hidden="true"></b></label><input type="range" id="offset" min="-120" max="120" step="5" value="0"></div>
     <p class="hint" id="noSun">Sunset needs your location. <button type="button" class="linkbtn" onclick="$('timerSheet').close(); showPage('settings')">Set it in Settings</button></p>
-    <div class="wheel" id="timeWheel" style="margin-top:12px" role="group" aria-label="Time"></div>
-    <div class="ctl" id="offsetRow" style="margin-top:8px"><label class="small" for="offset"><b id="offsetVal" aria-hidden="true"></b></label><input type="range" id="offset" min="-120" max="120" step="5" value="0"></div>
-    <div id="lookRow" style="margin-top:12px"><label class="small" for="timerLook" style="margin-bottom:6px">Look</label><select class="field" id="timerLook"></select></div>
-    <div class="group-title" style="margin:16px 0 8px" id="tDaysTitle">Repeat</div>
-    <div class="days" id="days" role="group" aria-labelledby="tDaysTitle"></div>
-    <div class="chips" id="dayQuick"></div>
+    <div class="sheetrow" id="lookRow"><label for="timerLook">Look</label><select class="field" id="timerLook"></select></div>
+    <div>
+      <div class="sheetrow"><span class="group-title" id="tDaysTitle">Repeat</span><div class="chips" id="dayQuick"></div></div>
+      <div class="days" id="days" role="group" aria-labelledby="tDaysTitle"></div>
+    </div>
     <p class="warn" id="sheetClash" role="status" hidden></p>
-    <div class="row" style="margin-top:16px;flex-wrap:nowrap">
-      <button class="btn" id="delTimer" style="color:var(--bad)" onclick="deleteTimer()">Delete</button>
+    <div class="row sheet-acts">
+      <button class="btn quiet danger" id="delTimer" onclick="deleteTimer()">Delete</button>
       <span class="grow" style="min-width:0"></span>
       <button class="btn" onclick="$('timerSheet').close()">Cancel</button>
       <button class="btn dark" onclick="saveTimer()">Save</button>
@@ -834,7 +876,7 @@ function drawSheet() {
   const sun = draft.time.startsWith('sunset');
   $('actSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === draft.action));
   $('whenSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === (sun ? 'sunset' : 'time')));
-  $('whenSeg').querySelector('[data-v=sunset]').hidden = !sunsetToday && !sun; $('noSun').hidden = !!sunsetToday;
+  $('whenSeg').hidden = !sunsetToday && !sun; $('noSun').hidden = !!sunsetToday;  // no lone "At a time" tab
   $('timeWheel').hidden = sun; $('offsetRow').hidden = !sun;
   if (sun) { $('offset').value = offsetOf(draft.time); slid($('offset')); } else wheel.set(draft.time);
   $('lookRow').hidden = draft.action !== 'on'; $('timerLook').value = draft.theme;
@@ -1388,7 +1430,7 @@ async function refresh(quick) {  // quick = only the bulbs; the rest of the page
   $('autoUpdate').checked = state.update?.enabled !== false;
   $('appVersion').textContent = (state.update?.version || state.version).slice(0, 12);
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
-  $('askUse').hidden = !state.claude; $('askUse').textContent = state.ask ? 'Turn off' : 'Turn on'; $('askGet').hidden = state.claude;
+  $('askUse').hidden = !state.claude; $('askUse').checked = !!state.ask; $('askGet').hidden = state.claude;
   $('noLights').hidden = ids().length > 0;
   $('liveCard').hidden = $('colorCard').hidden = $('fxCard').hidden = !ids().length;  // no light to send them to
   if (ids().length) welcomeDone = true;
