@@ -6,7 +6,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer
 from pathlib import Path
 from urllib import request, error
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlencode
 from launcher import update
 
 APP_VERSION = update.settings()['version']
@@ -22,9 +22,9 @@ FPS = 12
 HISTORY = 30
 EFFECTS = ("wave", "smoothwave", "shimmer", "twinkle", "comet", "fire", "aurora",
            "solid", "pattern", "chase", "march", "breathe", "rainbow", "paint", "custom")
-KEYS = ("effect", "colors", "speed", "amount", "brightness", "on", "bulbs", "animation")
+KEYS = ("effect", "colors", "speed", "amount", "brightness", "on", "bulbs", "animation", "scene")
 DEFAULT = {"effect": "wave", "colors": [[255, 200, 80], [255, 255, 255]], "speed": 1.0, "amount": 0.3,
-           "brightness": 100, "on": True, "bulbs": None, "animation": None}
+           "brightness": 100, "on": True, "bulbs": None, "animation": None, "scene": None}
 GOLD, SILVER = [255, 200, 80], [255, 255, 255]
 PRESETS = [
     ("Silver & gold wave", {"effect": "wave", "colors": [GOLD, SILVER], "speed": 1, "amount": 0.3}),
@@ -76,6 +76,8 @@ govee_read_at = 0.0
 observed = {}  # last successful LAN sample, never persisted as a fresh baseline
 command_at = {}
 outside = {}  # bounded, local power-change history
+scene_cache = {}  # public SKU catalogs; no account key
+scene_lock = threading.Lock()
 paused = set()  # outside changes suspend streaming until a user action or their schedule
 flashing = set()  # lights blinking right now for "which one is this?"
 SAMPLE = DRY and os.environ.get("GOVEE_SAMPLE") == "1"
@@ -95,7 +97,9 @@ def capability(dev):
 
 def light_settings(key, p):
     cap = capability(key)
-    if not cap["razer"]:
+    if st.get(key, {}).get("effect") == "scene" and set(p) <= {"on", "brightness"}:
+        return clean(p, cap["bulbs"])
+    if not cap["razer"] and p.get("effect") != "scene":
         p = {k: v for k, v in p.items() if k in ("on", "brightness", "colors")}
         p = dict(p, effect="solid", bulbs=None, animation=None)
         p["colors"] = p.get("colors", (st.get(key) or DEFAULT)["colors"])[:1]
@@ -164,13 +168,134 @@ def wake():
 
 
 def send(key, cmd, data):
-    if cmd == "razer" and not capability(key)["razer"]:
-        return
-    if cmd == "turn":
-        command_at[key] = time.monotonic()
-    if not DRY:
-        lan_gate()
-        sock.sendto(json.dumps({"msg": {"cmd": cmd, "data": data}}).encode(), ((lights.get(key) or found[key])["ip"], 4003))
+    with lock:
+        if cmd == "razer" and (not capability(key)["razer"] or key in paused):
+            return
+        if cmd == "turn":
+            command_at[key] = time.monotonic()
+        if not DRY:
+            lan_gate()
+            sock.sendto(json.dumps({"msg": {"cmd": cmd, "data": data}}).encode(), ((lights.get(key) or found[key])["ip"], 4003))
+
+
+def checksum(data):
+    value = 0
+    for byte in data:
+        value ^= byte
+    return value
+
+
+def finish(data):
+    return bytes(data).ljust(19, b"\0") + bytes([checksum(data)])
+
+
+def encode_scene(param, code):
+    """Port of wez/govee2mqtt src/ble.rs SetSceneCode::encode.
+
+    This transports an existing effect; it does not compile animation frames.
+    """
+    raw = base64.b64decode(param, validate=True)
+    if not raw or type(code) is not int or not 0 < code <= 65535:
+        raise ValueError("Missing scene bytes or invalid scene code")
+    chunks = [bytearray([0xa3, 0, 1, 0, 2]) + raw[:14]]
+    for offset in range(14, len(raw), 17):
+        chunks.append(bytearray([0xa3, len(chunks)]) + raw[offset:offset + 17])
+    if len(chunks) > 255:
+        raise ValueError("Too many A3 packets")
+    chunks[0][3] = len(chunks)
+    chunks[-1][1] = 0xff
+    return [base64.b64encode(finish(c)).decode() for c in chunks] + [
+        base64.b64encode(finish([0x33, 5, 4, code & 255, code >> 8])).decode()]
+
+
+def filter_scene_catalog(catalog):
+    if catalog.get("status") != 200:
+        raise ValueError("Govee catalog unavailable")
+    categories = []
+    for category in catalog["data"]["categories"]:
+        scenes = []
+        for scene in category["scenes"]:
+            effect = next((e for e in scene.get("lightEffects", []) if e.get("scenceParam") and e.get("sceneCode")), None)
+            if effect:
+                encode_scene(effect["scenceParam"], effect["sceneCode"])
+                scenes.append({"name": scene["sceneName"], "param": effect["scenceParam"], "code": effect["sceneCode"]})
+        categories.append({"name": category["categoryName"], "scenes": scenes})
+    return categories
+
+
+def scene_catalog(sku):
+    with scene_lock:
+        if sku in scene_cache:
+            return scene_cache[sku]
+        cache_file = SAVE.with_name(SAVE.stem + "-scenes.json")
+        try:
+            cached = json.loads(cache_file.read_text())
+            if not isinstance(cached, dict):
+                cached = {}
+        except (OSError, ValueError):
+            cached = {}
+        try:
+            req = request.Request("https://app2.govee.com/appsku/v1/light-effect-libraries?" + urlencode({"sku": sku}), headers={
+                "AppVersion": "6.5.02", "User-Agent": "GoveeHome/6.5.02 (com.ihoment.GoVeeSensor; build:2; iOS 16.5.0) Alamofire/5.6.4"})
+            with request.urlopen(req, timeout=15) as response:
+                raw = response.read(2_000_001)
+            if len(raw) > 2_000_000:
+                raise ValueError("Catalog too large")
+            categories = filter_scene_catalog(json.loads(raw))
+        except (OSError, ValueError, KeyError, TypeError):
+            if sku not in cached:
+                return {"categories": [], "offline": True}
+            result = {"categories": cached[sku], "offline": True}
+        else:
+            cached[sku] = categories
+            try:
+                tmp = cache_file.with_suffix(".tmp")
+                tmp.write_text(json.dumps(cached))
+                tmp.replace(cache_file)
+            except OSError:
+                pass  # memory catalog still works if the cache directory is read-only
+            result = {"categories": categories, "offline": False}
+        scene_cache[sku] = result
+        return result
+
+
+def scenes_for_light(dev):
+    keys = list(lights) if dev == "all" else [dev]
+    if not keys or any(k not in lights for k in keys):
+        raise ValueError("Pick a light first")
+    catalogs = [scene_catalog(lights[k]["sku"]) for k in keys]
+    # All offers only names every selected SKU can play, with each SKU's own bytes.
+    common = set.intersection(*[{s["name"] for c in cat["categories"] for s in c["scenes"]} for cat in catalogs])
+    return {"categories": [{"name": c["name"], "scenes": [s["name"] for s in c["scenes"] if s["name"] in common]} for c in catalogs[0]["categories"]],
+            "offline": any(cat["offline"] for cat in catalogs)}
+
+
+def play_scene(keys, name, *, remember=True, persist=True):
+    if not isinstance(name, str):
+        raise ValueError("Pick a scene")
+    commands = {}
+    for key in keys:
+        catalog = scene_catalog(lights[key]["sku"])
+        scene = next((s for c in catalog["categories"] for s in c["scenes"] if s["name"] == name), None)
+        if scene is None:
+            raise ValueError("Scene unavailable for " + lights[key]["name"])
+        commands[key] = encode_scene(scene["param"], scene["code"])
+    with lock:
+        for key, packets in commands.items():
+            was_paused = key in paused
+            paused.add(key)
+            try:
+                send(key, "ptReal", {"command": packets})
+            except OSError:
+                if not was_paused:
+                    paused.discard(key)
+                raise
+            if remember:
+                st[key]["history"] = (st[key]["history"] + [look(st[key])])[-HISTORY:]
+            st[key].update(effect="scene", scene=name, error=None)
+            if persist:
+                save()
+    return True
 
 
 def razer(key, raw):
@@ -488,6 +613,7 @@ def load():
         bad = True
     else:
         paused.update(k for k in saved_paused if k in st)
+    paused.update(k for k, v in st.items() if v["effect"] == "scene")
     if bad:
         keep_bad()
 
@@ -495,8 +621,12 @@ def load():
 def clean(p, n=N):
     """Validate settings from the UI or Claude."""
     p = {k: v for k, v in p.items() if k in KEYS}
-    if "effect" in p and p["effect"] not in EFFECTS:
+    if "effect" in p and p["effect"] not in (*EFFECTS, "scene"):
         raise ValueError(f"effect must be one of {EFFECTS}")
+    if p.get("scene") is not None and (not isinstance(p["scene"], str) or not 0 < len(p["scene"]) <= 200):
+        raise ValueError("Invalid scene name")
+    if p.get("effect") == "scene" and not p.get("scene"):
+        raise ValueError("Scene name required")
     if "animation" in p and p["animation"] is not None:
         p["animation"] = clean_animation(p["animation"], n)
         if p.get("effect", "custom") == "custom":  # effects and their previews use the animation's own colors, not the old gold/white
@@ -520,6 +650,19 @@ def clean(p, n=N):
 def push(key, p, remember=True, *, persist=True):
     """Send settings to the light. Hardware first, so the saved look only changes if the send works."""
     p = light_settings(key, p)
+    if p.get("effect") == "scene":
+        return play_scene([key], p["scene"], remember=remember, persist=persist)
+    if st[key]["effect"] == "scene" and not any(k in p for k in ("effect", "colors", "bulbs", "animation")):
+        for field, cmd in (("on", "turn"), ("brightness", "brightness")):
+            if field in p:
+                send(key, cmd, {"value": int(p[field])})
+        st[key].update(p)
+        if persist:
+            save()
+        return False
+    p["scene"] = None
+    if st[key]["effect"] == "scene" and "effect" not in p:
+        p["effect"] = "solid"
     paused.discard(key)
     if not capability(key)["razer"] and p.get("on", st[key]["on"]):  # a color command can wake a light that is off
         c = (p.get("colors") or st[key]["colors"])[0]
@@ -1466,6 +1609,12 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.allowed():
             return self.reply(403, {"error": "home Wi-Fi only"})
+        if self.path.split("?")[0] == "/api/govee-scenes":
+            try:
+                dev = parse_qs(urlparse(self.path).query).get("light", [""])[0]
+                return self.reply(200, scenes_for_light(dev))
+            except ValueError as e:
+                return self.reply(400, {"error": str(e)})
         if self.path == "/api/govee":
             return self.reply(200, {"connected": bool(govee_key), "devices": [
                 {"id": d["device"], "name": str(d.get("deviceName") or "")[:MAX_NAME]} for d in govee_devices]})
@@ -1608,6 +1757,9 @@ class H(BaseHTTPRequestHandler):
             keys = list(lights) if body.get("light") == "all" else [body.get("light")]
             if not keys or any(k not in st for k in keys):
                 return self.reply(400, {"error": "unknown light" if keys else "Set up a light first."})
+            if self.path == "/api/play-scene":
+                play_scene(keys, body.get("scene"))
+                return self.reply(200, {"ok": True})
             if self.path == "/api/set":
                 settings = dict(body.get("settings", {}))
                 changes = {k: light_settings(k, settings) for k in keys}
