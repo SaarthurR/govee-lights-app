@@ -4,3 +4,5 @@ __pycache__/
 .server-term
 state.json
 state.tmp
+state-scenes.json
+state-scenes.tmp
