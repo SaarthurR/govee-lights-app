@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const html = fs.readFileSync(`${__dirname}/../index.html`, 'utf8');
 const extract = (start, end) => html.slice(html.indexOf(start), html.indexOf(end, html.indexOf(start)));
 const context = {
-  light: '', state: {lights: {}}, localStorage: {light: 'forgotten'},
+  light: '', page: 'control', state: {lights: {}}, localStorage: {light: 'forgotten'},
   ids() { return Object.keys(context.state.lights); },
   pickTab(k) { context.light = k; },
 };
