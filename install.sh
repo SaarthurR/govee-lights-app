@@ -128,6 +128,7 @@ if service == "launchd":
     app = str(pathlib.Path.home() / "Applications/Govee Lights.app/Contents/MacOS/Govee Lights")
     p.write_bytes(plistlib.dumps(dict(Label=label, ProgramArguments=[app, "--server"],
         WorkingDirectory=directory, EnvironmentVariables=env, RunAtLoad=True, KeepAlive=True,
+        ProcessType="Interactive",  # default agents get throttled timers: frames landed ~60 ms late, uneven
         StandardOutPath=directory + "/lights.log", StandardErrorPath=directory + "/lights.log")))
 elif service == "systemd":
     p = pathlib.Path(unit); p.parent.mkdir(parents=True, exist_ok=True)
