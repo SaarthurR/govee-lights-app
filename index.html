@@ -505,6 +505,7 @@
       <div class="ctl grow"><label class="small" for="bright">Brightness <b id="brightVal" aria-hidden="true">100%</b></label><input type="range" id="bright" min="1" max="100" value="100"></div>
     </div>
     <div class="strip" id="strip" data-advanced></div>
+    <p class="hint" id="sceneNote" hidden></p>
     <div class="paintbar" id="paintbar" data-advanced>
       <input type="color" id="pick" value="#ffffff" aria-label="Paint color">
       <button class="btn dark" id="paintBtn" onclick="paint()">Paint</button>
@@ -1123,8 +1124,9 @@ function draw() {
   $('paintbar').classList.toggle('on', sel.size > 0);
   $('paintBtn').textContent = 'Paint ' + (sel.size === 1 ? '1 bulb' : sel.size + ' bulbs');
   $('paintBtn').disabled = (light === 'all' ? ids() : [light]).some(k => !state?.lights[k]?.frame);
-  const s = cur(), f = s?.frame || [];  // right after a light switch the reply may not have its bulbs yet
-  $('strip').querySelectorAll('.bulb').forEach((b, i) => { b.style.background = s && s.on ? `rgb(${f[i] || [0,0,0]})` : ''; b.classList.toggle('sel', sel.has(i)); });
+  const s = cur(), f = s?.frame || [], scene = s?.effect === 'scene';  // right after a light switch the reply may not have its bulbs yet
+  $('sceneNote').hidden = !scene; $('sceneNote').textContent = scene ? `${s.scene} is playing on the light. Its colors can't be shown here.` : '';
+  $('strip').querySelectorAll('.bulb').forEach((b, i) => { b.style.background = s && s.on && !scene ? `rgb(${f[i] || [0,0,0]})` : ''; b.classList.toggle('sel', sel.has(i)); });
 }
 function selectEvery(k) { sel.clear(); for (let i = 0; i < N; i += k) sel.add(i); draw(); }
 async function paint() {
