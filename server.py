@@ -1313,6 +1313,45 @@ custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}
 {"type":"govee_refresh"}, {"type":"govee_disconnect"}, {"type":"govee_scenes"}, {"type":"ask_use","use":false}, {"type":"clear_chat"}. Enter account keys in page; browser location/QR/preview/help are page controls. Keep brightness unless asked. Names max 30 light/40 theme. Chat expires in 5 min."""
 CHAT_TTL, CHAT_TURNS = 1200, 6
 chat = {"at": 0.0, "turns": []}  # short memory for follow-ups; forgotten after 20 quiet minutes so each ask stays cheap
+ASK_SCHEMA = json.dumps({
+    "type": "object", "required": ["say", "actions"], "additionalProperties": False,
+    "$defs": {
+        "rgb": {"type": "array", "minItems": 3, "maxItems": 3,
+                "items": {"type": "integer", "minimum": 0, "maximum": 255}},
+        "pattern": {"type": "array", "minItems": 1, "maxItems": N, "items": {"$ref": "#/$defs/rgb"}},
+    },
+    "properties": {
+        "say": {"type": "string"},
+        "actions": {"type": "array", "maxItems": 16, "items": {"type": "object", "required": ["type"], "properties": {
+            "type": {"type": "string", "enum": ["set", "paint", "save_theme", "apply_theme", "rename_theme",
+                "delete_theme", "schedule", "location", "rename_light", "undo", "flash", "reconnect", "forget_light",
+                "scan", "save_lights", "govee_refresh", "govee_disconnect", "govee_scenes", "ask_use", "clear_chat"]},
+            "target": {"type": "string"},
+            "color": {"$ref": "#/$defs/rgb"},
+            "indices": {"type": "array", "minItems": 1, "maxItems": N,
+                        "items": {"type": "integer", "minimum": 0, "maximum": N - 1}},
+            "settings": {"type": "object", "additionalProperties": False, "properties": {
+                "on": {"type": "boolean"},
+                "brightness": {"type": "number", "minimum": 1, "maximum": 100},
+                "speed": {"type": "number", "minimum": .05, "maximum": 5},
+                "amount": {"type": "number", "minimum": .05, "maximum": 1},
+                "effect": {"type": "string", "enum": list(EFFECTS)},
+                "colors": {"type": "array", "minItems": 1, "maxItems": 6, "items": {"$ref": "#/$defs/rgb"}},
+                "bulbs": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/pattern"}]},
+                "animation": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["frames"], "additionalProperties": False, "properties": {
+                    "shift": {"type": "integer", "minimum": -N, "maximum": N},
+                    "motion": {"type": "string", "enum": ["forward", "center", "outward"]},
+                    "block": {"type": "integer", "minimum": 1, "maximum": N},
+                    "frames": {"type": "array", "minItems": 1, "maxItems": 16, "items": {
+                        "type": "object", "required": ["pattern", "duration"], "additionalProperties": False, "properties": {
+                            "pattern": {"$ref": "#/$defs/pattern"},
+                            "duration": {"type": "number", "minimum": 1 / FPS, "maximum": 60},
+                            "fade": {"type": "number", "minimum": 0, "maximum": 1}}}},
+                }}]},
+            }},
+        }}},
+    },
+}, separators=(",", ":"))
 
 
 def chat_view():
@@ -1340,18 +1379,27 @@ def ask_claude(keys, text):
         raise ValueError("Claude is still working on the last ask. Wait a second.")
     try:
         out = subprocess.run(["claude", "-p", "--model", "haiku", "--tools", "", "--strict-mcp-config",
-                              "--no-session-persistence", "--effort", "low", "--output-format", "text", "--system-prompt", ASK,
+                              "--no-session-persistence", "--effort", "low", "--output-format", "json", "--json-schema", ASK_SCHEMA, "--system-prompt", ASK,
                               "--disable-slash-commands", "--setting-sources", "",
                               "--exclude-dynamic-system-prompt-sections"],
                              input=ask_prompt(keys, text), capture_output=True, text=True, timeout=60, cwd=HERE)
-        if out.returncode or len(out.stdout) > MAX_BODY:
-            raise ValueError("Claude could not answer. Try again.")
+        if len(out.stdout) > MAX_BODY:
+            raise ValueError("Claude's answer was too large. Try a simpler request.")
+        if out.returncode:
+            raise ValueError("Claude could not answer. Check Claude Code is signed in and has usage available.")
         try:
-            return json.loads(out.stdout)
+            result = json.loads(out.stdout)
         except ValueError:
             raise ValueError("Claude returned invalid JSON. Try again.")
+        if not isinstance(result, dict) or result.get("is_error") or not isinstance(result.get("structured_output"), dict):
+            raise ValueError("Claude could not produce a valid answer. Try again.")
+        return result["structured_output"]
     except FileNotFoundError:
         raise ValueError("The claude command was not found on this computer.")
+    except subprocess.TimeoutExpired:
+        raise ValueError("Claude took too long to answer. Try again.")
+    except (OSError, UnicodeError):
+        raise ValueError("Could not run Claude Code. Check it opens on this computer.")
     finally:
         ask_lock.release()
 

@@ -35,12 +35,14 @@ class AskChecks(unittest.TestCase):
         self.tmp.cleanup()
 
     def ask(self, actions, selected=None):
-        raw = json.dumps(dict(say="Done", actions=actions))
+        raw = json.dumps(dict(is_error=False, structured_output=dict(say="Done", actions=actions)))
         with patch.object(app.subprocess, "run", return_value=SimpleNamespace(stdout=raw, returncode=0)) as run:
             answer = app.ask_claude(self.keys if selected is None else selected, "test")
         args = run.call_args.args[0]
         self.assertEqual(args[args.index("--model") + 1], "haiku")
         self.assertEqual(args[args.index("--tools") + 1], "")
+        self.assertEqual(args[args.index("--output-format") + 1], "json")
+        self.assertEqual(args[args.index("--json-schema") + 1], app.ASK_SCHEMA)
         return app.apply_answer(answer, self.keys if selected is None else selected)
 
     def test_actions_and_persistence(self):
@@ -122,11 +124,41 @@ class AskChecks(unittest.TestCase):
         for raw in ('prose {"say":"Hi","actions":[]}', '```json\n{}\n```'):
             with patch.object(app.subprocess, "run", return_value=SimpleNamespace(stdout=raw, returncode=0)):
                 with self.assertRaises(ValueError): app.ask_claude(self.keys, "test")
+        for result in ([], {}, {"result": '{"say":"Hi","actions":[]}'},
+                       {"is_error": True, "structured_output": {"say": "Hi", "actions": []}},
+                       {"structured_output": "not an object"}):
+            with patch.object(app.subprocess, "run", return_value=SimpleNamespace(stdout=json.dumps(result), returncode=0)):
+                with self.assertRaises(ValueError): app.ask_claude(self.keys, "test")
+        schema = json.loads(app.ASK_SCHEMA)
+        self.assertEqual(schema["$defs"]["rgb"]["items"], {"type": "integer", "minimum": 0, "maximum": 255})
+        colors = schema["properties"]["actions"]["items"]["properties"]["settings"]["properties"]["colors"]
+        self.assertEqual((colors["minItems"], colors["maxItems"]), (1, 6))
         app.st[self.keys[0]]["bulbs"] = [[1, 2, 3]] * 84
         self.assertNotIn("bulbs", json.loads(app.ask_prompt(self.keys, "dim it"))["lights"][self.keys[0]]["look"])
         self.assertIn("bulbs", json.loads(app.ask_prompt(self.keys, "paint bulb 1"))["lights"][self.keys[0]]["look"])
         app.chat.update(at=0, turns=[["old", "old", False]])
         self.assertEqual(app.chat_view()["turns"], [])
+
+    def test_claude_failures_leave_state_and_unlock(self):
+        before = copy.deepcopy((app.st, app.schedule, app.themes))
+        failures = ((FileNotFoundError(), "not found"),
+                    (PermissionError(), "Could not run"),
+                    (app.subprocess.TimeoutExpired("claude", 60), "too long"),
+                    (UnicodeError(), "Could not run"))
+        for error, message in failures:
+            with self.subTest(error=type(error).__name__), patch.object(app.subprocess, "run", side_effect=error):
+                with self.assertRaisesRegex(ValueError, message): app.ask_claude(self.keys, "test")
+            self.assertFalse(app.ask_lock.locked())
+        for response, message in ((SimpleNamespace(stdout="", returncode=1), "signed in"),
+                                  (SimpleNamespace(stdout="x" * (app.MAX_BODY + 1), returncode=0), "too large")):
+            with patch.object(app.subprocess, "run", return_value=response):
+                with self.assertRaisesRegex(ValueError, message): app.ask_claude(self.keys, "test")
+            self.assertFalse(app.ask_lock.locked())
+        with app.ask_lock, patch.object(app.subprocess, "run") as run:
+            with self.assertRaisesRegex(ValueError, "still working"): app.ask_claude(self.keys, "test")
+            run.assert_not_called()
+        self.assertEqual(before, (app.st, app.schedule, app.themes))
+        self.ask([])  # a failed request must not block the next one
 
     def test_no_light_themes_location_and_questions(self):
         app.lights.clear(); app.st.clear(); app.schedule.clear()
