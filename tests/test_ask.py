@@ -1,5 +1,6 @@
 """Offline Ask contract checks. No network/device or paid Claude calls."""
 import copy
+import io
 import errno
 import itertools
 import json
@@ -172,6 +173,27 @@ class AskChecks(unittest.TestCase):
             self.assertEqual(app.st[k], before[k])
         self.assertEqual(app.st["third-device"]["bulbs"], [[255, 0, 0] if i == 6 else [7, 8, 9] for i in range(20)])
 
+    def test_theme_adjustments_survive_reload_and_playback(self):
+        settings = dict(effect="wave", speed=.4, amount=.7, brightness=42)
+        self.ask([dict(type="save_theme", name="Ocean", settings=settings)])
+        app.themes.clear(); app.load()
+        self.assertEqual(app.themes["Ocean"]["speed"], .4)
+        self.ask([dict(type="set", settings=dict(speed=2, amount=.2, brightness=100)),
+                  dict(type="apply_theme", name="Ocean")])
+        self.assertTrue(all(app.st[self.keys[0]][k] == v for k, v in settings.items()))
+
+    def test_update_deleted_theme_does_not_recreate_it(self):
+        raw = json.dumps(dict(name="Gone", replace=True, settings=dict(effect="wave"))).encode()
+        handler = app.H.__new__(app.H)
+        handler.path = "/api/theme"
+        handler.headers = {"Content-Type": "application/json", "Content-Length": str(len(raw))}
+        handler.rfile = io.BytesIO(raw); handler.allowed = lambda: True
+        with patch.object(handler, "reply") as reply:
+            handler.do_POST()
+        self.assertEqual(reply.call_args.args[0], 400)
+        self.assertIn("no longer exists", reply.call_args.args[1]["error"])
+        self.assertNotIn("Gone", app.themes)
+
     def test_no_light_themes_location_and_questions(self):
         app.lights.clear(); app.st.clear(); app.schedule.clear()
         with patch.object(app, "FAKE", 0):
@@ -194,7 +216,7 @@ class AskChecks(unittest.TestCase):
                   dict(type="apply_theme", target="all", name="Ember"),
                   dict(type="schedule", target="all", schedule=dict(add=[dict(time="sunset-20", action="on", days=[5, 6], theme="Ember"),
                                                                           dict(time="00:00", action="off", days=[5, 6])]))])
-        self.assertTrue(all(s["effect"] == "fire" and s["brightness"] == 100 and s["on"] for s in app.st.values()))
+        self.assertTrue(all(s["effect"] == "fire" and s["brightness"] == 50 and s["on"] for s in app.st.values()))
         self.assertTrue(all(s["timers"][0]["theme"] == "Ember" for s in app.schedule.values()))
         self.ask([dict(type="rename_theme", name="Ember", new="Glow")])
         self.assertTrue(all(s["timers"][0]["theme"] == "Glow" for s in app.schedule.values()))

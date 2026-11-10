@@ -354,11 +354,16 @@
     #askCard .logbox { flex-shrink:1; min-height:0; max-height:none; }
     #askCard.open { animation:rise 250ms var(--ease-out) both; }
     #askCard.open .composer { order:1; margin-top:12px; }
+    #askCard.open { top:var(--chat-top, 0px); bottom:auto; width:100%; height:var(--chat-height, 100dvh); max-height:none; border:0; border-radius:0; padding:calc(16px + env(safe-area-inset-top)) 16px 16px; background:var(--card); animation:fade 150ms ease-out both; }
+    #askCard.open .logbox { flex:1; }
+    #askCard.open .logbox:not(:has(> .log:not([hidden]))) { display:none; }
+    #askCard.open .chat-empty { flex:1; display:grid; place-items:center; text-align:center; padding:24px; }
+    #askCard.open .logbox:has(> .log:not([hidden])) + .chat-empty { display:none; }
     #askCard:not(.open) { padding:0; border:0; background:none; box-shadow:none; }
     #askCard:not(.open) > :not(.composer) { display:none; }
     #askCard:not(.open) .composer { background:var(--card); border-color:transparent; box-shadow:0 4px 18px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.08); }
     body:has(#app:not([hidden]) #askCard.open:not([hidden])) { overflow:hidden; }
-    body:has(#app:not([hidden]) #askCard.open:not([hidden]))::after { content:""; position:fixed; inset:0; z-index:11; background:rgba(0,0,0,.25); animation:fade 200ms ease-out both; }
+    body:has(#app:not([hidden]) #askCard.open:not([hidden]))::after { content:""; position:fixed; inset:0; z-index:11; background:var(--card); }
     body:has(#askCard.open:not([hidden])) #toast { bottom:auto; top:calc(12px + env(safe-area-inset-top)); }
     main:has(#askCard:not([hidden])) { padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
   }
@@ -366,7 +371,6 @@
     header { margin-bottom:12px; row-gap:10px; }
     h1 { font-size:26px; }
     #askCard:not(.open) { bottom:calc(67px + env(safe-area-inset-bottom)); }
-    #askCard.open { bottom:var(--kb, 0px); width:100%; border-radius:18px 18px 0 0; border-bottom:0; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
     main:has(#askCard:not([hidden])) { padding-bottom:calc(136px + env(safe-area-inset-bottom)); }
     body:has(#app:not([hidden]) #askCard:not([hidden])) #toast { bottom:calc(128px + env(safe-area-inset-bottom)); }
     .head-right > .btn { display:none; }
@@ -518,6 +522,7 @@
       <div class="ctl"><label class="small" for="power" id="powerLabel">Power</label><button class="power" id="power" aria-label="Power"></button></div>
       <div class="ctl grow"><label class="small" for="bright">Brightness <b id="brightVal" aria-hidden="true">100%</b></label><input type="range" id="bright" min="1" max="100" value="100"></div>
     </div>
+    <div class="row" id="themeSave" style="margin:8px 0 12px" hidden><p class="hint grow" id="themeSaveHint" style="margin:0" aria-live="polite"></p><button class="btn" id="themeSaveBtn" onclick="saveThemeChanges()">Save changes</button></div>
     <div class="strip" id="strip" data-advanced></div>
     <p class="hint" id="sceneNote" hidden></p>
     <div class="paintbar" id="paintbar" data-advanced>
@@ -556,7 +561,7 @@
 
   <div class="card" id="fxCard" data-advanced>
     <h2>Effects</h2>
-    <div class="row fx" style="gap:16px;margin:-4px 0 12px">
+    <div class="row fx" id="motionControls" data-advanced style="gap:16px;margin:4px 0 12px">
       <div class="ctl grow"><label class="small" for="speed">Speed <b id="speedVal" aria-hidden="true"></b></label><input type="range" id="speed" min="0.1" max="4" step="0.05" value="1"></div>
       <div class="ctl grow"><label class="small" for="amount"><span id="amountLabel">Amount</span> <b id="amountVal" aria-hidden="true"></b></label><input type="range" id="amount" min="0.05" max="1" step="0.01" value="0.5"></div>
     </div>
@@ -741,22 +746,51 @@ async function loadPreviews() {
     p.groups.forEach(([title, items]) => {
       const g = document.createElement('div'); g.className = 'group';
       g.innerHTML = `<div class="group-title">${title}</div><div class="grid"></div>`; $('groups').appendChild(g);
-      items.forEach(([name, s, frames]) => { const b = tile(g.lastChild, name, frames, () => set({...s, on:true}, `${name} on ${where()}`)); b.dataset.look = JSON.stringify(s); });
+      items.forEach(([name, s, frames]) => { const b = tile(g.lastChild, name, frames, () => playLook(name, s)); b.dataset.look = JSON.stringify(s); });
     });
     Object.entries(p.effects).forEach(([e, frames]) => { const b = tile($('effects'), NAMES[e] || e, frames, () => set({effect:e, on:true}, `${NAMES[e] || e} on ${where()}`)); b.dataset.e = e; });
     await loadThemes(); animate(); syncControls(); drawTimers();
   } catch (e) { setTimeout(loadPreviews, 2000); }
 }
-let themesKey = '';
+let themesKey = '', savedThemes = {}, selectedThemes = {};
+async function playLook(name, settings, saved = false) {
+  const keys = light === 'all' ? ids() : [light];
+  const result = await set({...settings, on:true}, `${name} on ${where()}`);
+  if (result?.ok) { keys.forEach(k => selectedThemes[k] = saved ? name : null); themeSaveUI(); }
+}
+function themeSaveUI() {
+  const keys = light === 'all' ? ids() : [light];
+  for (const k of keys) if (!(k in selectedThemes)) {
+    const matches = Object.entries(savedThemes).filter(([, theme]) => Object.keys(theme).every(f => same(theme[f], state.lights[k]?.[f])));
+    if (matches.length === 1) selectedThemes[k] = matches[0][0];
+  }
+  const name = selectedThemes[keys[0]], theme = savedThemes[name];
+  $('themeSave').hidden = !theme || !keys.every(k => selectedThemes[k] === name);
+  if ($('themeSave').hidden) return;
+  const fields = Object.keys(theme), s = cur();
+  const shared = keys.every(k => fields.every(f => same(state.lights[k]?.[f], s[f])));
+  const dirty = fields.some(f => !same(theme[f], s[f]));
+  $('themeSaveHint').textContent = !shared ? 'Pick one light to save its changes.' : dirty ? `Changes to “${name}”` : `Saved to “${name}”`;
+  $('themeSaveBtn').hidden = !dirty || !shared;
+}
+async function saveThemeChanges() {
+  const name = selectedThemes[lead()]; if (!savedThemes[name]) return;
+  $('themeSaveBtn').disabled = true;
+  try {
+    const result = await post('/api/theme', {name, replace:true}, `Saved changes to “${name}”`);
+    if (result?.ok) await loadThemes();
+  } finally { $('themeSaveBtn').disabled = false; themeSaveUI(); }
+}
 async function loadThemes() {
   const list = await (await fetch('/api/themes')).json();
   const key = JSON.stringify(list.map(([name, s]) => [name, s])); if (key === themesKey) return; themesKey = key;  // unchanged: keep the tiles and focus
   lookNames.themes = list.map(([name]) => name);
+  savedThemes = Object.fromEntries(list.map(([name, settings]) => [name, settings]));
   $('mythemes').innerHTML = '';
   $('themesHint').style.display = list.length ? 'none' : '';
   list.forEach(([name, s, frames]) => {
     const w = document.createElement('div'); w.className = 'wrap'; $('mythemes').appendChild(w);
-    const b = tile(w, name, frames, () => set({...s, on:true}, `${name} on ${where()}`)); b.dataset.look = JSON.stringify(s);
+    const b = tile(w, name, frames, () => playLook(name, s, true)); b.dataset.look = JSON.stringify(s);
     const acts = document.createElement('div'); acts.className = 'tacts'; w.appendChild(acts);
     [['Rename', async () => {
       const n = await sheet('Rename theme', name, 'Rename'); if (!n || n === name) return;
@@ -766,6 +800,7 @@ async function loadThemes() {
   });
   if (!list.length) editThemes(false);
   $('themesEdit').hidden = !list.length;
+  themeSaveUI();
 }
 const editThemes = on => { $('mythemes').classList.toggle('editing', on); $('themesEdit').textContent = on ? 'Done' : 'Edit'; };
 $('themesEdit').onclick = () => editThemes(!$('mythemes').classList.contains('editing'));
@@ -784,7 +819,8 @@ function sheet(title, value, ok = 'OK') {  // value undefined = yes/no question;
 async function saveTheme() {
   const s = cur(); if (!s) return;
   const name = await sheet('Name this theme', '', 'Save'); if (!name) return;
-  const j = await post('/api/theme', {name}, `Saved “${name}” to My themes`); if (j && j.ok) loadThemes();
+  const j = await post('/api/theme', {name}, `Saved “${name}” to My themes`);
+  if (j && j.ok) { (light === 'all' ? ids() : [light]).forEach(k => selectedThemes[k] = name); loadThemes(); }
 }
 const EVERY = [0, 1, 2, 3, 4, 5, 6];  // 0 = Monday, as on the server
 let sched = {}, draft = null, sunsetToday = '', lookNames = {themes: [], presets: []};
@@ -1199,9 +1235,16 @@ document.querySelectorAll('input[type=range]').forEach(r => {
   slid(r);
 });
 const NO_SPEED = ['solid', 'pattern', 'paint'];
+const compactControls = matchMedia('(max-width:999px)');
+function placeMotionControls() {
+  const parent = $(compactControls.matches ? 'liveCard' : 'fxCard');
+  parent.insertBefore($('motionControls'), $(compactControls.matches ? 'themeSave' : 'effects'));
+}
+compactControls.addEventListener('change', () => { askOpen(false); placeMotionControls(); }); placeMotionControls();
 let shownColors = '';
 function syncControls() {
   const s = cur(); if (!s) return;
+  themeSaveUI();
   const own = {rainbow: 'Rainbow makes its own colors. Pick another effect to use these.', custom: 'These are the colors of this animation. Change one and the animation uses it.'}[s.effect];
   $('colorsNote').textContent = own || ''; $('colorsNote').hidden = !own;
   const full = advanced();
@@ -1294,11 +1337,20 @@ $('pages').onclick = e => { const b = e.target.closest('button'); if (b) showPag
 let savedPage; try { savedPage = localStorage.page; } catch (_) {}
 showPage(['themes', 'scenes', 'schedule', 'settings'].includes(savedPage) ? savedPage : 'control');
 // below 1000px Ask Claude is a docked bar: focusing it opens the chat sheet; the dimmed page behind closes it
-const askOpen = on => $('askCard').classList.toggle('open', on);
+function chatViewport() {
+  $('askCard').style.setProperty('--chat-height', (window.visualViewport?.height || innerHeight) + 'px');
+  $('askCard').style.setProperty('--chat-top', (window.visualViewport?.offsetTop || 0) + 'px');
+}
+function askOpen(on) {
+  if (!on) $('askText').blur();
+  chatViewport(); $('askCard').classList.toggle('open', on);
+  document.querySelectorAll('header, #pages, #liveCard, [data-page]').forEach(el => el.inert = on && compactControls.matches);
+}
 $('askText').addEventListener('focus', () => askOpen(true));
 document.body.addEventListener('click', e => { if (e.target === document.body) askOpen(false); });
 // iOS leaves fixed elements behind the keyboard; lift the sheet by the part of the window the keyboard covers
 if (window.visualViewport) for (const ev of ['resize', 'scroll']) visualViewport.addEventListener(ev, () => {
+  chatViewport();
   const kb = document.activeElement === $('askText') ? Math.max(0, innerHeight - visualViewport.height - visualViewport.offsetTop) : 0;
   document.documentElement.style.setProperty('--kb', kb + 'px');
 });

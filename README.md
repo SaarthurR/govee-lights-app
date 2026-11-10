@@ -76,7 +76,9 @@ Windows (keeps state; use `-Purge` to delete it too):
 
 `server.py` (Python standard library only) talks to the lights over the Govee LAN API and serves `index.html`, the whole page. It only answers devices on your home network. Everything is saved in `state.json` next to it. Protocol notes are in [docs/protocol.md](docs/protocol.md). The optional Govee account only reads light and scene names. Ask Claude uses the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) `claude` command if you have it, and Claude can only return a checked list of app actions, never code.
 
-Try it without lights: `GOVEE_DRY=1 GOVEE_FAKE_LIGHTS=2 PORT=8768 python3 server.py`. Tests: `python3 -m unittest discover -s tests`, `node tests/test_ask.js`, `node tests/test_feedback.js` and `node tests/test_colors.js`. CI also runs the real installers on macOS, Windows and Linux in dry mode (`tests/install_check.py`).
+Try it without lights: `GOVEE_DRY=1 GOVEE_FAKE_LIGHTS=2 PORT=8768 python3 server.py`. Tests: `python3 -m unittest discover -s tests`, `node tests/test_ask.js`, `node tests/test_feedback.js`, `node tests/test_colors.js` and `node tests/test_themes.js`. CI also runs the real installers on macOS, Windows and Linux in dry mode (`tests/install_check.py`).
+
+After playing a saved theme, adjust brightness, speed or amount and tap **Save changes** to update it. The next playback restores those saved settings. Presets stay unchanged; use **Save as theme** to keep a customized preset.
 
 Color controls use locally bundled dnd kit and vanilla-colorful; no CDN or Node.js is needed to run the app. To rebuild `vendor/color-controls.js`, run `npm ci --prefix ui && npm run --prefix ui build`. Sources and pinned versions are in `ui/`; third-party licenses are in `vendor/LICENSES.txt`.
 

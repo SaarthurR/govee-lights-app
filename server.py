@@ -1307,10 +1307,10 @@ Actions:
 {"type":"set","settings":{}} optional fields: on bool, brightness 1-100, effect, colors 1-6 RGB integer triples 0-255, speed .05-5, amount .05-1, bulbs exactly light's slot count RGBs or null, animation or null. Effects: wave, smoothwave (slow), shimmer, twinkle, comet, fire, aurora, solid, pattern, chase, march (colors in order, one per bulb, stepping along), breathe, rainbow, paint, custom. razer=false supports only power, brightness, one solid color and timers.
 custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}],"shift":integer,"motion":"forward|center|outward","block":integer}. 1-16 frames, 1..bulbs colors/pattern repeated, duration 1/12..60s, fade at end toward next shifted frame; shift -bulbs..bulbs each frame; block 1..bulbs per color. Loop; speed multiplies playback, so send speed 1 with a new custom animation. Prefer short custom patterns for new effects. Slow police: red/blue pattern, block half bulbs, shift half bulbs, duration 2. center moves inward.
 {"type":"paint","indices":[0,1],"color":[r,g,b]} zero based: user-visible bulb 1 is index 0. Use paint for one bulb; leave all other bulbs/lights unchanged. Use supplied light ids/names and per-light capabilities; never assume two lights or group neighboring bulbs.
-{"type":"save_theme","name":"name","settings":{}} creates from DEFAULT + settings without a light; omit settings to save target's resulting look (one look required). {"type":"apply_theme","name":"theme or preset"} keeps brightness unless asked. {"type":"rename_theme","name":"old","new":"new"}, {"type":"delete_theme","name":"name"}.
+{"type":"save_theme","name":"name","settings":{}} creates from DEFAULT + settings without a light; omit settings to save target's resulting look (one look required). {"type":"apply_theme","name":"theme or preset"} restores saved settings including brightness; presets keep brightness. {"type":"rename_theme","name":"old","new":"new"}, {"type":"delete_theme","name":"name"}.
 {"type":"schedule","schedule":{"add":[{"time":"HH:MM|sunset|sunset-20","action":"on|off","days":[5,6],"theme":"name","enabled":true}],"edit":[{"id":"id","enabled":false}],"delete":["id"],"use":true}} optional keys; edit=id+changes. Mon=0..Sun=6, default daily; sunset offset +/-120min, requires location to run. theme/preset on timers only; omit=last look. Max 10 timers/light. use=master switch, keep unless asked. Never changes lights now. Midnight off ends the preceding on-night; use same days as on.
 {"type":"location","lat":number,"lon":number} only user-provided coordinates; ask if unknown. {"type":"rename_light","name":"name"}, {"type":"undo"}, {"type":"flash"}, {"type":"reconnect"}, {"type":"forget_light"}, {"type":"scan"}, {"type":"save_lights","lights":[{"id":"discovered id","name":"name"}]}. Setup/network/account actions must be alone; scan then let user choose discovered lights.
-{"type":"govee_refresh"}, {"type":"govee_disconnect"}, {"type":"govee_scenes"}, {"type":"ask_use","use":false}, {"type":"clear_chat"}. Enter account keys in page; browser location/QR/preview/help are page controls. Keep brightness unless asked. Names max 30 light/40 theme. Chat expires in 5 min."""
+{"type":"govee_refresh"}, {"type":"govee_disconnect"}, {"type":"govee_scenes"}, {"type":"ask_use","use":false}, {"type":"clear_chat"}. Enter account keys in page; browser location/QR/preview/help are page controls. Keep brightness for other edits unless asked. Names max 30 light/40 theme. Chat expires in 5 min."""
 CHAT_TTL, CHAT_TURNS = 1200, 6
 chat = {"at": 0.0, "turns": []}  # short memory for follow-ups; forgotten after 20 quiet minutes so each ask stays cheap
 ASK_SCHEMA = json.dumps({
@@ -1499,7 +1499,8 @@ def _apply_answer(answer, keys):
                 raise ValueError("Invalid settings.")
             value = dict(value)
             if kind == "apply_theme":
-                value.pop("brightness", None)
+                if a.get("name") not in saved:
+                    value.pop("brightness", None)
                 value["on"] = True
             for field, low, high in (("speed", .05, 5), ("amount", .05, 1), ("brightness", 1, 100)):
                 if field in value and (type(value[field]) not in (int, float) or not low <= value[field] <= high):
@@ -1766,6 +1767,8 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"ok": True})
             if self.path == "/api/theme":
                 with lock:
+                    if body.get("replace") and body.get("name") not in themes:
+                        raise ValueError("That theme no longer exists. Save it as a new theme instead.")
                     selected = body.get("light")
                     light = selected if selected in st else next(iter(st), None)
                     if not body.get("settings") and not light:
