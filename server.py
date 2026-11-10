@@ -1278,9 +1278,14 @@ def save_theme(name, p, *, persist=True):
     with lock:
         if name not in themes and len(themes) >= MAX_THEMES:
             raise ValueError(f"You can keep up to {MAX_THEMES} themes. Delete one first.")
+        previous = themes.get(name)
         themes[name] = {k: v for k, v in clean(dict(p)).items() if k != "on"}
-        if persist:
-            save()
+        if persist and not save():
+            if previous is None:
+                themes.pop(name)
+            else:
+                themes[name] = previous
+            raise ValueError("Could not save the theme. Check the saved-state file is writable.")
 
 
 def disconnect_govee():
@@ -1815,10 +1820,21 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"ok": True})
             if self.path == "/api/set":
                 settings = dict(body.get("settings", {}))
-                changes = {k: light_settings(k, settings) for k in keys}
-                for k, p in changes.items():
-                    push(k, p)
-                return self.reply(200, {"ok": True})
+                theme = body.get("theme")
+                with lock:
+                    changes = {k: light_settings(k, settings) for k in keys}
+                    if theme is not None:
+                        if not isinstance(theme, str) or theme not in themes:
+                            raise ValueError("That theme no longer exists. Pick a saved theme again.")
+                        fields = set(settings) - {"on"}
+                        if not fields or fields - {"speed", "amount", "brightness"}:
+                            raise ValueError("Only speed, amount and brightness can be auto-saved.")
+                        updated = clean(dict(themes[theme], **{f: settings[f] for f in fields}))
+                    for k, p in changes.items():
+                        push(k, p, persist=theme is None)
+                    if theme is not None:
+                        save_theme(theme, updated)
+                    return self.reply(200, {"ok": True} | ({"theme": theme, "saved": themes[theme]} if theme is not None else {}))
             if self.path == "/api/undo":
                 with lock:
                     if any(not st[k]["history"] for k in keys):

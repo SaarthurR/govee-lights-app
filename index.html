@@ -754,8 +754,9 @@ async function loadPreviews() {
 }
 let themesKey = '', savedThemes = {}, selectedThemes = {};
 async function playLook(name, settings, saved = false) {
+  if (saved && !savedThemes[name]) return toast('That theme no longer exists. Pick another theme.', true);
   const keys = light === 'all' ? ids() : [light];
-  const result = await set({...settings, on:true}, `${name} on ${where()}`);
+  const result = await set({...(saved ? savedThemes[name] : settings), on:true}, `${name} on ${where()}`);
   if (result?.ok) { keys.forEach(k => selectedThemes[k] = saved ? name : null); themeSaveUI(); }
 }
 function themeSaveUI() {
@@ -780,6 +781,12 @@ async function saveThemeChanges() {
     const result = await post('/api/theme', {name, replace:true}, `Saved changes to “${name}”`);
     if (result?.ok) await loadThemes();
   } finally { $('themeSaveBtn').disabled = false; themeSaveUI(); }
+}
+async function adjustSetting(settings, label) {
+  const keys = light === 'all' ? ids() : [light], name = selectedThemes[keys[0]];
+  const theme = savedThemes[name] && keys.every(k => selectedThemes[k] === name) ? name : null;
+  const result = await post('/api/set', {settings, ...(theme ? {theme} : {})}, theme ? `Saved ${label} to “${theme}”` : `${label[0].toUpperCase() + label.slice(1)} updated`);
+  if (result?.ok && result.theme) { savedThemes[result.theme] = result.saved; themeSaveUI(); loadThemes(); }
 }
 async function loadThemes() {
   const list = await (await fetch('/api/themes')).json();
@@ -1586,9 +1593,9 @@ $('tabs').onkeydown = e => {  // arrow keys move between lights, as in any tab l
   const b = bs[(i + d + bs.length) % bs.length]; b.focus(); pickTab(b.dataset.k); e.preventDefault();
 };
 $('power').onclick = () => { const on = !(cur() && cur().on); set({on}, `${where()} turned ${on ? 'on' : 'off'}`); };
-$('bright').onchange = () => set({brightness: +$('bright').value, ...(cur()?.on ? {} : {on: true})}, `Brightness ${$('bright').value}%`);
-$('speed').onchange = () => set({speed: +$('speed').value}, 'Speed updated');
-$('amount').onchange = () => set({amount: +$('amount').value}, `${$('amountLabel').textContent} updated`);
+$('bright').onchange = () => adjustSetting({brightness: +$('bright').value, ...(cur()?.on ? {} : {on: true})}, 'brightness');
+$('speed').onchange = () => adjustSetting({speed: +$('speed').value}, 'speed');
+$('amount').onchange = () => adjustSetting({amount: +$('amount').value}, 'amount');
 // chat: the server keeps the last few turns and forgets them after 20 quiet minutes
 let chatTimer;
 function bubble(who, text, isNew) {
