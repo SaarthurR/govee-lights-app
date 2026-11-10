@@ -160,6 +160,18 @@ class AskChecks(unittest.TestCase):
         self.assertEqual(before, (app.st, app.schedule, app.themes))
         self.ask([])  # a failed request must not block the next one
 
+    def test_single_bulb_on_third_light_is_isolated(self):
+        app.add_light("third-device", "Desk", "H619A")
+        for k in app.st:
+            app.st[k].update(effect="paint", bulbs=[[7, 8, 9] for _ in range(app.capability(k)["bulbs"])])
+        before = copy.deepcopy(app.st)
+        prompt = json.loads(app.ask_prompt(self.keys, "Make only bulb 7 on Desk red"))
+        self.assertEqual(prompt["lights"]["third-device"]["capabilities"]["bulbs"], 20)
+        self.ask([dict(type="paint", target="third-device", indices=[6], color=[255, 0, 0])])
+        for k in self.keys:
+            self.assertEqual(app.st[k], before[k])
+        self.assertEqual(app.st["third-device"]["bulbs"], [[255, 0, 0] if i == 6 else [7, 8, 9] for i in range(20)])
+
     def test_no_light_themes_location_and_questions(self):
         app.lights.clear(); app.st.clear(); app.schedule.clear()
         with patch.object(app, "FAKE", 0):
