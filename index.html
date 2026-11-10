@@ -233,9 +233,10 @@
   .color-slot .slot:active { cursor:grabbing; }
   .color-remove { position:absolute; top:-9px; right:-9px; width:24px; height:24px; padding:0; border:2px solid var(--card); border-radius:50%; background:var(--ink); color:var(--card); display:grid; place-items:center; cursor:pointer; z-index:1; opacity:0; scale:.8; pointer-events:none; transition:opacity 120ms ease-out, scale 120ms ease-out; }
   .color-remove::after { content:""; position:absolute; inset:-3px; }
-  .color-slot:hover .color-remove, .color-slot:focus-within .color-remove { opacity:1; scale:1; pointer-events:auto; }
-  .colors.dragging .color-remove { opacity:0; pointer-events:none; }
+  @media (hover:hover) and (pointer:fine) { .color-slot:hover .color-remove { opacity:1; scale:1; pointer-events:auto; } }
+  .color-slot:has(:focus-visible) .color-remove { opacity:1; scale:1; pointer-events:auto; }
   @media (hover:none) { .slot[aria-current=true] + .color-remove { opacity:1; scale:1; pointer-events:auto; } }
+  .colors.dragging .color-remove { opacity:0; pointer-events:none; }
   .color-remove .i { width:12px; height:12px; }
   #colorPicker { position:fixed; inset:auto; margin:0; width:248px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); overflow:auto; padding:14px; background:var(--card); border:1px solid var(--line); border-radius:16px; color:var(--ink); box-shadow:0 12px 36px rgba(0,0,0,.16); }
   #colorPicker .head { margin-bottom:12px; }
@@ -1083,7 +1084,7 @@ function pickColor(i) {
   $('swatches').querySelectorAll('[data-c]').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === toHex(cs[i])));
   $('colorWheel').color = $('colorHex').value = toHex(cs[i]);
   $('colorPickerTitle').textContent = 'Color ' + (i + 1);
-  const hint = cs.length > 1 ? `Color ${i + 1}: tap a swatch to change it. Drag colors to reorder.` : 'Tap a swatch to change the color.';
+  const hint = cs.length > 1 ? matchMedia('(hover: none)').matches ? 'Hold and drag to reorder.' : `Color ${i + 1}: tap a swatch to change it. Drag colors to reorder.` : 'Tap a swatch to change the color.';
   if ($('colorHint').textContent !== hint) $('colorHint').textContent = hint;
 }
 // edits read the latest look when they are made, so a picker left open never sends an older palette back

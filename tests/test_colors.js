@@ -13,13 +13,14 @@ const $ = id => {
     matches() { return this.open; }, querySelectorAll: () => []});
   return elements.get(id);
 };
-let look, writes = [], pendingWrites = [], slow = false, toasts = [];
+let look, writes = [], pendingWrites = [], slow = false, toasts = [], touch = false;
 const copy = x => JSON.parse(JSON.stringify(x));
 const red = [255, 0, 0], green = [0, 255, 0], blue = [0, 0, 255];
 const events = new Map(), frames = [];
 let sensorOptions;
 const context = {$, window: {addEventListener() {}}, picked: 0, shownColors: '', light: 'a', innerWidth: 390, innerHeight: 844,
   document: {activeElement: null}, requestAnimationFrame: callback => frames.push(callback),
+  matchMedia: () => ({matches: touch}), toHex: c => '#' + Buffer.from(c).toString('hex'),
   ColorControls: {
     DragDropManager: class {monitor = {addEventListener: (type, callback) => events.set(type, callback)}; dragOperation = {status: {idle: true}};},
     KeyboardSensor: class {}, isSortable: () => false,
@@ -52,6 +53,16 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   assert.equal(run('colorDragging'), true);
   run('colorSorter.dragOperation.status.idle = true'); frames.shift()(); await dropped;
   assert.equal(run('colorDragging'), false);
+  const buttons = [new Map(), new Map()];
+  $('colors').querySelectorAll = () => buttons.map(attributes => ({setAttribute: (name, value) => attributes.set(name, value)}));
+  look = {colors: [blue, red]}; show(); touch = true;
+  run('pickColor(1)');
+  assert.deepEqual(buttons.map(b => b.get('aria-current')), [false, true]);
+  assert.equal(run('picked'), 1);
+  assert.equal($('colorHint').textContent, 'Hold and drag to reorder.');
+  run('pickColor(0)');
+  assert.deepEqual(buttons.map(b => b.get('aria-current')), [true, false]);
+  touch = false; $('colors').querySelectorAll = () => [];
   look = {colors: [red, green, blue]}; show(); run('picked = 1; reorderColors(0, 2)');
   assert.deepEqual(look.colors, [green, blue, red]); assert.equal(run('picked'), 0);
   show(); const count = writes.length; look.colors[0] = blue; run('reorderColors(0, 1)');
