@@ -13,7 +13,7 @@ APP_VERSION = update.settings()['version']
 
 HERE = Path(__file__).parent
 SAVE = Path(os.environ.get("GOVEE_STATE", HERE / "state.json"))   # lights, last look + history per light, themes, schedule; survives restarts
-N = 255   # most colors one razer packet holds (count byte); a strip stretches fewer colors over its bulbs in pairs
+N = 255   # packet limit; each supported model streams its own bulb count, one RGB triple per bulb
 # Streaming slots, not physical LED counts: docs/protocol.md (H805D), OpenRGB's Govee table (H619A).
 MODELS = {"H805D": {"bulbs": 132, "razer": True}, "H619A": {"bulbs": 20, "razer": True},
           "H6008": {"bulbs": 1, "razer": False}}  # false = no verified streaming support in this app
@@ -1306,7 +1306,7 @@ ASK = """Govee controller. JSON only: {"say":"short reply or one clarification q
 Actions:
 {"type":"set","settings":{}} optional fields: on bool, brightness 1-100, effect, colors 1-6 RGB integer triples 0-255, speed .05-5, amount .05-1, bulbs exactly light's slot count RGBs or null, animation or null. Effects: wave, smoothwave (slow), shimmer, twinkle, comet, fire, aurora, solid, pattern, chase, march (colors in order, one per bulb, stepping along), breathe, rainbow, paint, custom. razer=false supports only power, brightness, one solid color and timers.
 custom animation={"frames":[{"pattern":[RGB,...],"duration":seconds,"fade":0..1}],"shift":integer,"motion":"forward|center|outward","block":integer}. 1-16 frames, 1..bulbs colors/pattern repeated, duration 1/12..60s, fade at end toward next shifted frame; shift -bulbs..bulbs each frame; block 1..bulbs per color. Loop; speed multiplies playback, so send speed 1 with a new custom animation. Prefer short custom patterns for new effects. Slow police: red/blue pattern, block half bulbs, shift half bulbs, duration 2. center moves inward.
-{"type":"paint","indices":[0,1],"color":[r,g,b]} zero based, only listed bulbs.
+{"type":"paint","indices":[0,1],"color":[r,g,b]} zero based: user-visible bulb 1 is index 0. Use paint for one bulb; leave all other bulbs/lights unchanged. Use supplied light ids/names and per-light capabilities; never assume two lights or group neighboring bulbs.
 {"type":"save_theme","name":"name","settings":{}} creates from DEFAULT + settings without a light; omit settings to save target's resulting look (one look required). {"type":"apply_theme","name":"theme or preset"} keeps brightness unless asked. {"type":"rename_theme","name":"old","new":"new"}, {"type":"delete_theme","name":"name"}.
 {"type":"schedule","schedule":{"add":[{"time":"HH:MM|sunset|sunset-20","action":"on|off","days":[5,6],"theme":"name","enabled":true}],"edit":[{"id":"id","enabled":false}],"delete":["id"],"use":true}} optional keys; edit=id+changes. Mon=0..Sun=6, default daily; sunset offset +/-120min, requires location to run. theme/preset on timers only; omit=last look. Max 10 timers/light. use=master switch, keep unless asked. Never changes lights now. Midnight off ends the preceding on-night; use same days as on.
 {"type":"location","lat":number,"lon":number} only user-provided coordinates; ask if unknown. {"type":"rename_light","name":"name"}, {"type":"undo"}, {"type":"flash"}, {"type":"reconnect"}, {"type":"forget_light"}, {"type":"scan"}, {"type":"save_lights","lights":[{"id":"discovered id","name":"name"}]}. Setup/network/account actions must be alone; scan then let user choose discovered lights.
@@ -1638,7 +1638,7 @@ class H(BaseHTTPRequestHandler):
     timeout = 30  # a client that never sends its body must not hold a thread forever
     def reply(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
-        self.send_response(code); self.send_header("Content-Type", ctype); self.end_headers(); self.wfile.write(data)
+        self.send_response(code); self.send_header("Content-Type", ctype); self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(data)
 
     def allowed(self):
         try:
@@ -1692,6 +1692,8 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, PREVIEWS)
         if self.path.split("?")[0] in ("/", "/index.html"):
             return self.reply(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if self.path.split("?")[0] == "/vendor/color-controls.js":
+            return self.reply(200, (HERE / "vendor/color-controls.js").read_bytes(), "text/javascript; charset=utf-8")
         if self.path in ("/manifest.json", "/docs/icon.svg"):
             return self.reply(200, (HERE / self.path[1:]).read_bytes(),
                               "application/manifest+json" if self.path.endswith(".json") else "image/svg+xml")

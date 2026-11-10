@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "esbuild color-controls.js --bundle --minify --format=iife --target=safari17 --outfile=../vendor/color-controls.js --legal-comments=eof"
+  },
+  "dependencies": {
+    "@dnd-kit/dom": "0.5.3",
+    "vanilla-colorful": "0.7.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

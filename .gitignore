@@ -1,6 +1,7 @@
 .venv/
 *.log
 __pycache__/
+node_modules/
 .server-term
 state.json
 state.tmp

@@ -225,11 +225,24 @@
   /* 36px swatch, 44px hit area with the 8px gap */
   .sw { position:relative; width:36px; height:36px; border-radius:50%; border:0; box-shadow:inset 0 0 0 1px rgba(0,0,0,.12); cursor:pointer; padding:0; }
   .sw::after { content:""; position:absolute; inset:-4px; }
-  .sw[aria-pressed=true], .slot[aria-pressed=true] { box-shadow:inset 0 0 0 1px rgba(0,0,0,.12), 0 0 0 2px var(--card), 0 0 0 4px var(--ink); }
+  .sw[aria-pressed=true], .slot[aria-current=true] { box-shadow:inset 0 0 0 1px rgba(0,0,0,.12), 0 0 0 2px var(--card), 0 0 0 4px var(--ink); }
   .sw.custom { background:conic-gradient(#f33, #fc3, #3c6, #3cf, #36f, #c3f, #f33); }
-  .sw.custom input { position:absolute; inset:0; width:100%; height:100%; opacity:0; border:0; padding:0; }
-  .sw.custom:has(input:focus-visible) { outline:2px solid var(--ink); outline-offset:2px; }
-  .colors { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .colors { display:flex; gap:16px; align-items:center; flex-wrap:wrap; padding-top:8px; }
+  .color-slot { position:relative; width:44px; height:44px; flex:none; }
+  .color-slot .slot { cursor:grab; touch-action:none; }
+  .color-slot .slot:active { cursor:grabbing; }
+  .color-remove { position:absolute; top:-9px; right:-9px; width:24px; height:24px; padding:0; border:2px solid var(--card); border-radius:50%; background:var(--ink); color:var(--card); display:grid; place-items:center; cursor:pointer; z-index:1; opacity:0; scale:.8; pointer-events:none; transition:opacity 120ms ease-out, scale 120ms ease-out; }
+  .color-remove::after { content:""; position:absolute; inset:-3px; }
+  .color-slot:hover .color-remove, .color-slot:focus-within .color-remove { opacity:1; scale:1; pointer-events:auto; }
+  .colors.dragging .color-remove { opacity:0; pointer-events:none; }
+  @media (hover:none) { .slot[aria-current=true] + .color-remove { opacity:1; scale:1; pointer-events:auto; } }
+  .color-remove .i { width:12px; height:12px; }
+  #colorPicker { position:fixed; inset:auto; margin:0; width:248px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); overflow:auto; padding:14px; background:var(--card); border:1px solid var(--line); border-radius:16px; color:var(--ink); box-shadow:0 12px 36px rgba(0,0,0,.16); }
+  #colorPicker .head { margin-bottom:12px; }
+  #colorPicker .head p { margin:0; font-size:14px; font-weight:600; }
+  #colorPicker .linkbtn { min-height:32px; padding:0 4px; }
+  #colorPicker hex-color-picker { width:100%; height:190px; }
+  #colorHex { margin-top:12px; font-variant-numeric:tabular-nums; text-transform:uppercase; }
   .slot { width:44px; height:44px; border-radius:12px; border:0; padding:0; cursor:pointer; box-shadow:inset 0 0 0 1px rgba(0,0,0,.12); }
   .slot.add { display:grid; place-items:center; background:var(--soft); color:var(--ink); box-shadow:inset 0 0 0 1px var(--line); }
   input[type=color] { width:44px; height:44px; border:1px solid var(--line); border-radius:12px; padding:3px; background:#fff; cursor:pointer; }
@@ -531,9 +544,9 @@
   <div class="card" id="colorCard">
     <h2>Colors</h2>
     <div class="colors" id="colors" role="group" aria-label="Your colors"></div>
-    <div class="row" style="margin-top:10px;flex-wrap:nowrap;min-height:32px"><p class="hint grow" id="colorHint" style="margin:0" aria-live="polite"></p><button class="linkbtn" id="removeColor"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>Remove</button></div>
+    <p class="hint" id="colorHint" aria-live="polite"></p>
     <p class="hint" id="colorsNote" style="margin-top:4px" hidden></p>
-    <div class="swatches" id="swatches" role="group" aria-label="Quick colors"><label class="sw custom" title="Any color"><input type="color" id="custom" aria-label="Any color"></label></div>
+    <div class="swatches" id="swatches" role="group" aria-label="Quick colors"><button class="sw custom" id="custom" aria-label="Any color" popovertarget="colorPicker" title="Any color"></button></div>
     <div class="row" style="margin-top:14px">
       <button class="btn" onclick="saveTheme()">Save as theme</button>
       <button class="btn" id="swap" onclick="swapColors()">Swap colors</button>
@@ -658,6 +671,12 @@
     </div>
   </div></dialog>
 </main>
+<div id="colorPicker" popover role="dialog" aria-labelledby="colorPickerTitle">
+  <div class="head"><p id="colorPickerTitle">Choose a color</p><button class="linkbtn" popovertarget="colorPicker" popovertargetaction="hide" aria-label="Close color picker">Done</button></div>
+  <hex-color-picker id="colorWheel"></hex-color-picker>
+  <input id="colorHex" class="field" aria-label="Hex color" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#FFFFFF">
+</div>
+<script src="/vendor/color-controls.js?v=1"></script>
 <script>
 let govee = {connected:false, devices:[]}, sceneRead = 0;
 let N = 0, light = '', state = null, sel = new Set(), last = null, clips = [];
@@ -994,32 +1013,78 @@ const patterns = (a, fn) => ({...a, frames: a.frames.map(f => ({...f, pattern: f
 const recolor = (a, from, to) => patterns(a, p => p.map(c => same(c, from) ? to : c));
 // one color is picked at a time; a swatch or "any color" replaces it
 let shown = {cs: [], anim: null};
+let colorDragging = false, colorDragLight = '', colorSortables = [], colorWriting = false, colorPending = null, colorSession = 0;
+const colorSorter = new ColorControls.DragDropManager({sensors: [
+  ColorControls.PointerSensor.configure({activationConstraints: (e, source) => e.pointerType === 'mouse'
+    ? [new ColorControls.PointerActivationConstraints.Distance({value: 5})]
+    : ColorControls.PointerSensor.defaults.activationConstraints(e, source)}), ColorControls.KeyboardSensor,
+]});
+colorSorter.monitor.addEventListener('dragstart', () => { colorDragging = true; colorDragLight = light; $('colors').classList.add('dragging'); $('colorPicker').hidePopover(); });
+colorSorter.monitor.addEventListener('dragend', async e => {
+  const source = e.operation.source, keepFocus = source && document.activeElement === source.handle;
+  const index = ColorControls.isSortable(source) ? e.canceled ? source.initialIndex : source.index : picked;
+  try {
+    if (!e.canceled && colorDragLight === light && !colorWriting && ColorControls.isSortable(e.operation.source)) {
+      const {initialIndex, index} = e.operation.source;
+      if (initialIndex !== index) await reorderColors(initialIndex, index);
+    }
+  } finally {
+    // dragend fires before dnd kit removes its floating source and placeholder.
+    await new Promise(resolve => {
+      const settled = () => colorSorter.dragOperation.status.idle ? resolve() : requestAnimationFrame(settled);
+      settled();
+    });
+    colorDragging = false; $('colors').classList.remove('dragging'); shownColors = ''; syncControls();
+    if (keepFocus) $('colors').querySelectorAll('.color-slot .slot')[index]?.focus();
+  }
+});
 function colorsUI(cs, anim) {
+  colorSortables.forEach(s => s.destroy()); colorSortables = [];
   shown = {cs, anim};
   const slots = cs.map((c, i) => {
+    const wrap = document.createElement('div'); wrap.className = 'color-slot';
     const b = document.createElement('button'); b.className = 'slot'; b.style.background = toHex(c); b.setAttribute('aria-label', 'Color ' + (i + 1));
-    b.onclick = () => pickColor(i); return b;
+    b.setAttribute('aria-description', 'Drag to reorder, or press Space and use the arrow keys.');
+    b.onclick = () => { if (!colorDragging) pickColor(i); }; wrap.append(b);
+    if (cs.length > 1) {
+      const remove = document.createElement('button'); remove.className = 'color-remove'; remove.setAttribute('aria-label', 'Remove color ' + (i + 1));
+      remove.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>';
+      remove.onclick = async () => { pickColor(i); await removeColor(); $('colors').querySelectorAll('.color-slot .slot')[Math.min(i, shown.cs.length - 1)]?.focus(); }; wrap.append(remove);
+    }
+    return wrap;
   });
   if (anim ? cs.length < 12 && anim.frames.some(f => f.pattern.length < maxBulbs()) : advanced() && cs.length < 6) {
     const add = document.createElement('button'); add.className = 'slot add'; add.setAttribute('aria-label', 'Add a color');
     add.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
-    add.onclick = () => {  // white goes on the end of every frame of an animation
-      const s = cur(), a = liveAnim(); if (!s) return; picked = cs.length;
-      if (a) set({animation: patterns(a, p => p.length < maxBulbs() ? [...p, [255,255,255]] : p)}, 'Color added');
-      else if (s.colors.length < 6) set({colors: [...s.colors, [255,255,255]]}, 'Color added');
+    add.onclick = async () => {
+      if (colorDragging || colorWriting) return;
+      const s = cur(), a = liveAnim(), target = light; if (!s) return;
+      const color = [[255,255,255], ...SWATCHES.map(([, c]) => c)].find(c => !cs.some(x => same(x, c)));
+      picked = cs.length;
+      if (a) {
+        const result = await set({animation: patterns(a, p => p.length < maxBulbs() ? [...p, color] : p)}, 'Color added');
+        if (result?.ok && target === light && liveAnim()) pickColor(animColors(liveAnim()).findIndex(c => same(c, color)));
+      } else if (s.colors.length < 6) set({colors: [...s.colors, color]}, 'Color added');
     };
     slots.push(add);
   }
-  $('colors').replaceChildren(...slots); pickColor(Math.min(picked, cs.length - 1));
+  $('colors').replaceChildren(...slots);
+  slots.filter(b => b.classList.contains('color-slot')).forEach((element, index) => {
+    colorSortables.push(new ColorControls.Sortable({id: 'color-' + index, index, element, handle: element.firstChild,
+      transition: {duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 200, easing: 'ease-out'}}, colorSorter));
+  });
+  pickColor(Math.min(picked, cs.length - 1));
 }
 function pickColor(i) {
-  const {cs, anim} = shown; picked = i;
-  $('colors').querySelectorAll('.slot:not(.add)').forEach((b, j) => b.setAttribute('aria-pressed', j === i));
+  const {cs, anim} = shown;
+  if (picked !== i) { colorSession++; colorPending = null; $('colorPicker').hidePopover(); }
+  picked = i;
+  $('colors').querySelectorAll('.slot:not(.add)').forEach((b, j) => b.setAttribute('aria-current', j === i));
   $('swatches').querySelectorAll('[data-c]').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === toHex(cs[i])));
-  $('custom').value = toHex(cs[i]);
-  const hint = cs.length > 1 ? `Color ${i + 1}: tap a swatch to change it.` : 'Tap a swatch to change the color.';
+  $('colorWheel').color = $('colorHex').value = toHex(cs[i]);
+  $('colorPickerTitle').textContent = 'Color ' + (i + 1);
+  const hint = cs.length > 1 ? `Color ${i + 1}: tap a swatch to change it. Drag colors to reorder.` : 'Tap a swatch to change the color.';
   if ($('colorHint').textContent !== hint) $('colorHint').textContent = hint;
-  $('removeColor').hidden = cs.length < 2; $('removeColor').setAttribute('aria-label', 'Remove color ' + (i + 1));
 }
 // edits read the latest look when they are made, so a picker left open never sends an older palette back
 const CHANGED = 'That color just changed on another screen. Pick it again.';
@@ -1030,11 +1095,10 @@ function setColor(c, msg) {  // replace the picked color, in an animation's fram
   const s = cur(), a = liveAnim(), from = shown.cs[picked]; if (!s) return;
   if (a) return hasColor(a, from) ? set({animation: recolor(a, from, c)}, msg) : toast(CHANGED, true);
   if (!advanced()) return set({colors: [c]}, msg);
-  if (picked >= s.colors.length) return toast(CHANGED, true);
-  const cs = s.colors.map(x => [...x]); cs[picked] = c; set({colors: cs}, msg);
+  if (!same(s.colors[picked], from)) return toast(CHANGED, true);
+  const cs = s.colors.map(x => [...x]); cs[picked] = c; return set({colors: cs}, msg);
 }
-$('custom').onchange = () => setColor(hex($('custom').value), 'Color updated');
-$('removeColor').onclick = () => {
+function removeColor() {
   const s = cur(), a = liveAnim(), from = shown.cs[picked]; if (!s) return;
   if (a) {  // out of every frame; a frame left empty takes one of the remaining colors
     const rest = animColors(a).filter(c => !same(c, from));
@@ -1042,8 +1106,59 @@ $('removeColor').onclick = () => {
     return set({animation: patterns(a, p => { const q = p.filter(c => !same(c, from)); return q.length ? q : [rest[0]]; })}, 'Color removed');
   }
   if (s.colors.length < 2 || !same(s.colors[picked], from)) return toast(CHANGED, true);
-  set({colors: s.colors.filter((_, i) => i !== picked)}, 'Color removed');
+  return set({colors: s.colors.filter((_, i) => i !== picked)}, 'Color removed');
+}
+function reorderColors(from, to) {
+  const s = cur(), a = liveAnim(), cs = shown.cs;
+  if (!s || !same(a ? animColors(a) : s.colors, cs)) return toast(CHANGED, true);
+  const order = cs.map((_, i) => i), [moved] = order.splice(from, 1); order.splice(to, 0, moved);
+  const next = order.map(i => cs[i]); picked = order.indexOf(picked);
+  return a ? set({animation: patterns(a, p => p.map(c => { const i = cs.findIndex(x => same(x, c)); return i < 0 ? c : next[i]; }))}, 'Colors reordered')
+           : set({colors: next}, 'Colors reordered');
+}
+$('custom').removeAttribute('popovertarget');
+$('custom').setAttribute('aria-haspopup', 'dialog');
+$('custom').setAttribute('aria-expanded', 'false');
+$('custom').onclick = () => {
+  const box = $('colorPicker'), rect = $('custom').getBoundingClientRect();
+  if (box.matches(':popover-open')) { box.hidePopover(); return; }
+  box.showPopover();
+  box.style.left = Math.max(12, Math.min(rect.left, innerWidth - box.offsetWidth - 12)) + 'px';
+  box.style.top = Math.max(12, Math.min(rect.bottom + 10, innerHeight - box.offsetHeight - 12)) + 'px';
+  $('custom').setAttribute('aria-expanded', 'true');
 };
+// Coalesce picker drags into serial writes, so an older reply cannot replace the final color.
+function queuePickerColor(value) {
+  if (!/^#[\da-f]{6}$/i.test(value)) return;
+  colorPending = {c: hex(value), session: colorSession, light};
+  $('colorHex').value = value;
+  const button = $('colors').querySelectorAll('.color-slot .slot')[picked]; if (button) button.style.background = value;
+  writePickerColor();
+}
+async function writePickerColor() {
+  if (colorWriting || !colorPending) return;
+  const pending = colorPending; colorPending = null;
+  if (pending.session !== colorSession || pending.light !== light) return;
+  colorWriting = true;
+  try {
+    const result = await setColor(pending.c, 'Color updated');
+    if (pending.session === colorSession && pending.light === light) {
+      if (result?.ok) shown.cs[picked] = pending.c;
+      else { colorPending = null; $('colorPicker').hidePopover(); }
+    }
+  } finally {
+    colorWriting = false;
+    if (colorPending) writePickerColor();
+    else if (!$('colorPicker').matches(':popover-open')) { shownColors = ''; syncControls(); }
+  }
+}
+$('colorWheel').addEventListener('color-changed', e => queuePickerColor(e.detail.value));
+$('colorHex').addEventListener('input', e => { if (/^#[\da-f]{6}$/i.test(e.target.value)) { $('colorWheel').color = e.target.value; queuePickerColor(e.target.value); } });
+$('colorPicker').addEventListener('toggle', e => { if (e.newState === 'closed') {
+  $('custom').setAttribute('aria-expanded', 'false');
+  if (!colorWriting && !colorPending && !colorDragging) { shownColors = ''; syncControls(); }
+} });
+window.addEventListener('resize', () => $('colorPicker').hidePopover());
 // sliders: the 150 ms poll must not move a thumb the user is holding. iOS Safari never focuses a range input
 // on touch, so the poll tracks our own pointer handling instead of document.activeElement, plus a short hold
 // after release so a poll that left before the new value was saved cannot snap the thumb back.
@@ -1118,7 +1233,7 @@ function syncControls() {
   const anim = s.effect === 'custom' && s.animation;
   const cs = anim ? animColors(anim) : full ? s.colors : s.colors.slice(0, 1);
   const key = JSON.stringify([full, cs, !!anim]);
-  if (key !== shownColors && document.activeElement.type !== 'color') { shownColors = key; colorsUI(cs.map(c => [...c]), anim); }
+  if (key !== shownColors && !colorDragging && !colorWriting && !colorPending && !$('colorPicker').matches(':popover-open')) { shownColors = key; colorsUI(cs.map(c => [...c]), anim); }
 }
 function draw() {
   $('paintbar').classList.toggle('on', sel.size > 0);
@@ -1161,7 +1276,7 @@ function drawChips(p) {  // a chip ending in … fills the box for you to finish
   }));
   $('askText').placeholder = ASKS[p];
 }
-function pickTab(k) { light = k; if (page === 'scenes') loadOnlightScenes(); sel.clear(); last = null; if (!document.querySelector('[data-page=themes]').hidden) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} markTabs(); shownColors = ''; syncControls(); draw(); }
+function pickTab(k) { colorSession++; colorPending = null; $('colorPicker').hidePopover(); light = k; if (page === 'scenes') loadOnlightScenes(); sel.clear(); last = null; if (!document.querySelector('[data-page=themes]').hidden) loadGoveeScenes(); fxKey = ''; loadSchedule(); try { localStorage.light = k; } catch (_) {} markTabs(); shownColors = ''; syncControls(); draw(); }
 let page = 'control', onlightRead = 0;
 function showPage(p) {
   page = document.body.dataset.view = p; $('strip').inert = p !== 'control';
