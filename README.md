@@ -78,7 +78,7 @@ Windows (keeps state; use `-Purge` to delete it too):
 
 Try it without lights: `GOVEE_DRY=1 GOVEE_FAKE_LIGHTS=2 PORT=8768 python3 server.py`. Tests: `python3 -m unittest discover -s tests`, `node tests/test_ask.js`, `node tests/test_feedback.js`, `node tests/test_colors.js` and `node tests/test_themes.js`. CI also runs the real installers on macOS, Windows and Linux in dry mode (`tests/install_check.py`).
 
-After playing a saved theme, adjust brightness, speed or amount and tap **Save changes** to update it. The next playback restores those saved settings. Presets stay unchanged; use **Save as theme** to keep a customized preset.
+After playing a saved theme, brightness, speed and amount auto-save when you release the slider; the popup names the theme that was saved. Other edits have a **Save changes** button. The next playback restores the saved settings. Presets stay unchanged; use **Save as theme** to keep a customized preset.
 
 Color controls use locally bundled dnd kit and vanilla-colorful; no CDN or Node.js is needed to run the app. To rebuild `vendor/color-controls.js`, run `npm ci --prefix ui && npm run --prefix ui build`. Sources and pinned versions are in `ui/`; third-party licenses are in `vendor/LICENSES.txt`.
 

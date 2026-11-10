@@ -1,4 +1,4 @@
-// Theme edits stay live until the user explicitly saves them back to the selected theme.
+// Sliders auto-save to the selected theme; other look edits can still be saved explicitly.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -13,7 +13,15 @@ const context = {$, state, light:'all', ids:()=>Object.keys(state.lights), lead:
   cur:()=>state.lights[context.light === 'all' ? 'a' : context.light], where:()=>context.light,
   same:(a,b)=>JSON.stringify(a) === JSON.stringify(b),
   set:async settings => { for (const key of context.light === 'all' ? Object.keys(state.lights) : [context.light]) Object.assign(state.lights[key], copy(settings)); return {ok:true}; },
-  post:async (path,body) => { posts.push({path,body}); context.updatedTheme = copy(context.cur()); delete context.updatedTheme.on; return {ok:true}; },
+  post:async (path,body,message) => {
+    posts.push({path,body,message});
+    if (path === '/api/set') {
+      await context.set(body.settings);
+      context.updatedTheme = {...copy(run('savedThemes')[body.theme] || {}), ...body.settings};
+      return {ok:true, ...(body.theme ? {theme:body.theme,saved:context.updatedTheme} : {})};
+    }
+    context.updatedTheme = copy(context.cur()); delete context.updatedTheme.on; return {ok:true};
+  },
   loadThemes:async () => vm.runInContext('savedThemes.Ocean = updatedTheme', context),
 };
 vm.createContext(context);
@@ -27,12 +35,21 @@ context.theme = copy(theme); run('savedThemes.Ocean = theme');
   for(const s of Object.values(state.lights)) Object.assign(s,{speed:.4,amount:.7,brightness:42});
   run('themeSaveUI()'); assert.equal($('themeSaveBtn').hidden,false); assert.equal(posts.length,0);
   await run('saveThemeChanges()');
-  assert.deepEqual(copy(posts),[{path:'/api/theme',body:{name:'Ocean',replace:true}}]);
+  assert.deepEqual(copy(posts),[{path:'/api/theme',body:{name:'Ocean',replace:true},message:'Saved changes to “Ocean”'}]);
   assert.equal(run('savedThemes.Ocean.speed'),.4); assert.equal(run('savedThemes.Ocean.brightness'),42);
   assert.equal($('themeSaveBtn').hidden,true); assert.equal($('themeSaveHint').textContent,'Saved to “Ocean”');
+  posts = [];
+  await run('adjustSetting({speed:.6}, "speed")');
+  assert.deepEqual(copy(posts[0]),{path:'/api/set',body:{settings:{speed:.6},theme:'Ocean'},message:'Saved speed to “Ocean”'});
+  assert.equal(run('savedThemes.Ocean.speed'),.6);
+  assert.equal($('themeSaveBtn').hidden,true);
+  await run('playLook("Ocean", theme, true)'); // an old tile callback must use the newly saved speed
+  assert.equal(state.lights.a.speed,.6);
   state.lights.b.speed = 2; run('themeSaveUI()');
   assert.equal($('themeSaveBtn').hidden,true); assert.match($('themeSaveHint').textContent,/Pick one light/);
   await run('playLook("Preset", {effect:"rainbow"})'); assert.equal($('themeSave').hidden,true);
+  posts = []; await run('adjustSetting({speed:2}, "speed")');
+  assert.equal(posts[0].body.theme,undefined); assert.equal(posts[0].message,'Speed updated');
   const background = [{inert:false}, {inert:false}], styles = new Map();
   context.window = {visualViewport:{height:400,offsetTop:10}};
   context.innerHeight = 800; context.compactControls = {matches:true};

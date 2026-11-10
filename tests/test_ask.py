@@ -194,6 +194,38 @@ class AskChecks(unittest.TestCase):
         self.assertIn("no longer exists", reply.call_args.args[1]["error"])
         self.assertNotIn("Gone", app.themes)
 
+    def test_slider_auto_save_updates_only_requested_fields(self):
+        app.save_theme("Ocean", dict(app.DEFAULT, speed=1, amount=.3, brightness=80))
+        original_colors = copy.deepcopy(app.themes["Ocean"]["colors"])
+        def post(settings, theme="Ocean"):
+            raw = json.dumps(dict(light=self.keys[0], settings=settings, theme=theme)).encode()
+            handler = app.H.__new__(app.H)
+            handler.path = "/api/set"
+            handler.headers = {"Content-Type": "application/json", "Content-Length": str(len(raw))}
+            handler.rfile = io.BytesIO(raw); handler.allowed = lambda: True
+            with patch.object(handler, "reply") as reply:
+                handler.do_POST()
+            return reply.call_args.args
+        other = copy.deepcopy(app.st[self.keys[1]])
+        for field, value in (("speed", .4), ("brightness", 42), ("amount", .7)):
+            code, answer = post({field: value})
+            self.assertEqual(code, 200)
+            self.assertEqual(answer["theme"], "Ocean")
+            self.assertEqual(answer["saved"][field], value)
+        self.assertEqual(app.st[self.keys[1]], other)
+        self.assertEqual(app.themes["Ocean"]["colors"], original_colors)
+        app.themes.clear(); app.load()
+        self.assertEqual([app.themes["Ocean"][f] for f in ("speed", "brightness", "amount")], [.4, 42, .7])
+        before = copy.deepcopy((app.st, app.themes))
+        for settings, theme in (({"speed": 2}, "Gone"), ({"colors": [[1, 2, 3]]}, "Ocean"), ({"on": True}, "Ocean")):
+            self.assertEqual(post(settings, theme)[0], 400)
+            self.assertEqual((app.st, app.themes), before)
+        with patch.object(app, "save", return_value=False):
+            code, answer = post({"speed": .8})
+        self.assertEqual(code, 400)
+        self.assertIn("Could not save", answer["error"])
+        self.assertEqual(app.themes, before[1])
+
     def test_no_light_themes_location_and_questions(self):
         app.lights.clear(); app.st.clear(); app.schedule.clear()
         with patch.object(app, "FAKE", 0):
