@@ -75,6 +75,10 @@ govee_lock = threading.Lock()
 govee_read_at = 0.0
 observed = {}  # last successful LAN sample, never persisted as a fresh baseline
 command_at = {}
+# Lights drop commands sent back to back. With no gap, per-bulb mode came on for 5 of 12 lights across three runs
+# (H608B, H612B, H16C0, H61D3); with a gap it came on for 12 of 12 (tested Nov 11, 2026). See docs/protocol.md.
+GAP = 0.12  # seconds between commands to one light; stream frames are not held back
+sent_at = {}  # light -> when its last command went out (time.monotonic())
 outside = {}  # bounded, local power-change history
 scene_cache = {}  # public SKU catalogs; no account key
 scene_lock = threading.Lock()
@@ -175,7 +179,12 @@ def send(key, cmd, data):
             command_at[key] = time.monotonic()
         if not DRY:
             lan_gate()
+            paced = cmd != "razer" or data["pt"] == ARM_PT  # stream frames are never held back
+            if paced:
+                time.sleep(max(0, sent_at.get(key, 0) + GAP - time.monotonic()))
             sock.sendto(json.dumps({"msg": {"cmd": cmd, "data": data}}).encode(), ((lights.get(key) or found[key])["ip"], 4003))
+            if paced:
+                sent_at[key] = time.monotonic()
 
 
 def checksum(data):
@@ -314,6 +323,7 @@ def razer_frame(colors):
 
 
 ARM = [0xBB, 0x00, 0x01, 0xB1, 0x01]  # per-bulb mode on; re-sending it while streaming blacks the strip out
+ARM_PT = base64.b64encode(bytes(ARM + [0x0A])).decode()  # ARM as it goes out, with its checksum
 
 
 def mix(a, b, t):
@@ -1014,7 +1024,7 @@ def forget_light(dev):
     with lock:
         if dev not in lights:
             raise ValueError("unknown light")
-        for d in (lights, st, schedule, outside, observed, command_at):
+        for d in (lights, st, schedule, outside, observed, command_at, sent_at):
             d.pop(dev, None)
         paused.discard(dev)
         save()
