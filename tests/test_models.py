@@ -57,6 +57,25 @@ class ModelChecks(unittest.TestCase):
         app.push("H805D", dict(effect="wave"))
         self.assertEqual(app.st["H805D"]["colors"], pat[:3])
 
+    def test_commands_to_one_light_are_spaced_but_frames_are_not(self):
+        clock, naps = [100.0], []
+        def nap(seconds):
+            naps.append(round(seconds, 3)); clock[0] += seconds
+        app.sent_at.clear()
+        with patch.object(app, "DRY", False), patch.object(app, "lan_gate"), patch.object(app, "sock") as sock, \
+             patch.object(app.time, "monotonic", lambda: clock[0]), patch.object(app.time, "sleep", nap):
+            app.send("H805D", "turn", {"value": 1})
+            app.send("H805D", "brightness", {"value": 50})   # right behind the first: waits out the gap
+            app.razer("H805D", app.ARM)                      # per-bulb mode on is a command too
+            app.send("H619A", "turn", {"value": 1})          # another light has its own gap
+            before = len(naps)
+            app.razer("H805D", app.razer_frame([[1, 2, 3]] * 132))  # a stream frame never waits
+            self.assertEqual(len(naps), before)
+            clock[0] += 5
+            app.send("H805D", "brightness", {"value": 60})   # long after the last command: no wait
+        self.assertEqual(naps, [0, app.GAP, app.GAP, 0, 0])
+        self.assertEqual(sock.sendto.call_count, 6)
+
     def test_user_bulb_count_is_saved_and_streamed(self):
         app.push("H805D", dict(effect="paint", bulbs=[[9, 9, 9]] * 132))
         app.save_lights([dict(id="H805D", name="Porch", bulbs=96)])
