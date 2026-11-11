@@ -76,6 +76,62 @@ class ModelChecks(unittest.TestCase):
         self.assertEqual(naps, [0, app.GAP, app.GAP, 0, 0])
         self.assertEqual(sock.sendto.call_count, 6)
 
+    def test_models_json_is_one_table_with_tested_and_untested_models(self):
+        table = json.loads((Path(app.__file__).parent / "models.json").read_text())["models"]
+        self.assertEqual(sorted(table), list(table))  # kept in order, so two people adding models rarely collide
+        for sku, m in table.items():
+            self.assertIn(m["status"], ("tested", "untested"), sku)
+            self.assertIn(m["source"], ("hardware", "signalrgb", "govee-local-api", "openrgb"), sku)
+            self.assertEqual(m["status"] == "tested", m["source"] == "hardware", sku)
+            self.assertEqual("tested" in m, m["status"] == "tested", sku)  # a tested model says when
+        for sku, n in (("H805D", 132), ("H619A", 20), ("H608B", 15), ("H612B", 10), ("H16C0", 7), ("H61D3", 7), ("H6056", 12)):
+            app.add_light(sku, sku, sku, "192.168.0.20")
+            self.assertEqual(app.capability(sku), dict(bulbs=n, razer=True))
+            self.assertEqual(app.razer_frame(app.render(app.st[sku], 1, n))[:6], [0xBB, (2 + 3 * n) >> 8, (2 + 3 * n) & 255, 0xB0, 0, n])
+        self.assertFalse(set(app.STREAMED) & set(app.UNTESTED))
+        self.assertEqual(len(app.STREAMED) + len(app.UNTESTED), len(table))
+
+    def test_unreadable_models_json_keeps_the_builtin_models(self):
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d) / "models.json"
+            for text in ("not json", '{"models": {"H1": {"slots": 0, "status": "tested"}}}', '{"models": {"H1": {"status": "tested"}}}', '{}'):
+                bad.write_text(text)
+                self.assertEqual(app.read_models(bad), (app.BUILTIN, {}), text)
+            self.assertEqual(app.read_models(Path(d) / "missing.json"), (app.BUILTIN, {}))
+            bad.write_text('{"models": {"H1": {"slots": 5, "status": "tested"}, "H2": {"slots": 9, "status": "untested"}, "H3": {"slots": 4, "status": "untested", "stream": true}}}')
+            self.assertEqual(app.read_models(bad), ({"H1": 5, "H3": 4}, {"H2": 9}))
+
+    def test_untested_models_stream_only_when_the_user_asks(self):
+        sku = "H610A"
+        self.assertIn(sku, app.UNTESTED)
+        app.add_light(sku, sku, sku, "192.168.0.20")
+        try:
+            self.assertEqual(app.capability(sku), dict(bulbs=1, razer=False))
+            app.push(sku, dict(effect="solid", colors=[[9, 8, 7]]))
+            with patch.object(app, "send") as send:
+                app.set_try_untested(True)
+                self.assertIn(unittest.mock.call(sku, "razer", {"pt": app.ARM_PT}), send.call_args_list)  # per-bulb mode on
+            n = app.UNTESTED[sku]
+            self.assertEqual(app.capability(sku), dict(bulbs=n, razer=True))
+            self.assertEqual(len(app.st[sku]["frame"]), n)
+            app.push(sku, dict(effect="paint", bulbs=[[1, 2, 3]] * n))
+            app.save_lights([dict(id=sku, name="Wall", bulbs=n // 2)])  # the listed count was wrong: the user sets their own
+            self.assertEqual(app.capability(sku), dict(bulbs=n // 2, razer=True))
+            app.save(); app.lights.clear(); app.st.clear(); app.load()
+            self.assertTrue(app.try_untested)
+            self.assertEqual(app.capability(sku), dict(bulbs=n // 2, razer=True))
+            with patch.object(app, "send") as send:
+                app.set_try_untested(False)
+                self.assertIn("colorwc", [c.args[1] for c in send.call_args_list])  # back to one solid color
+                self.assertNotIn("razer", [c.args[1] for c in send.call_args_list])
+            self.assertEqual(app.capability(sku), dict(bulbs=1, razer=False))
+            self.assertEqual(app.st[sku]["effect"], "solid")
+            for bad in (None, 1, "on"):
+                with self.assertRaises(ValueError):
+                    app.set_try_untested(bad)
+        finally:
+            app.try_untested = False
+
     def test_user_bulb_count_is_saved_and_streamed(self):
         app.push("H805D", dict(effect="paint", bulbs=[[9, 9, 9]] * 132))
         app.save_lights([dict(id="H805D", name="Porch", bulbs=96)])

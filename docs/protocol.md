@@ -29,6 +29,18 @@ What we learned on real strips:
 - A light's IP can change. The app matches lights by `device` id and scans again every 2 minutes.
 - The H805D is missing from Govee's published LAN device list, but it works.
 
+Tested Nov 11, 2026 on an H608B (Wi-Fi firmware 1.01.17), H612B (1.06.24), H16C0 (1.01.14), H61D3 (1.06.24), H610A (2.06.02) and H6056 (1.00.16):
+
+- Slot counts: H608B 15, H612B 10, H16C0 7, H61D3 7. Each of these four was painted half red, half blue through the app and showed two colors. On the H16C0 slot 1 is the bottom. The H61D3 count is not its segment count in community tables: one lists 15, and sent 15 colors it showed one flat color (tested Sep 5, 2026).
+- H6056: 12 slots, 6 on each bar. Sent 6 colors it stretched each over two segments, the way the H805D stretched 84; sent 24 it went dark. One slot lit at a time in a 12-color frame lit half the width that one slot of a 6-color frame did.
+- The byte after `B0` can be `00` or `01` on the H608B, H612B, H16C0 and H61D3: both showed the painted pattern, not one flat color. The H6056 was only tried with `00`.
+- Lights drop commands that arrive back to back. With color, power, brightness and per-bulb mode sent with no gap, per-bulb mode came on for 5 of 12 lights over three runs (H608B, H612B, H16C0, H61D3), and the lights that missed it showed their old solid color while frames streamed. With 0.12 s or 0.25 s between commands to one light it came on for 12 of 12. The app leaves 0.12 s.
+- The gap does not make color and brightness certain. Five lights were added and then set to a new color at 35%, and `devStatus` was read from each: with no gap 1 of 5 matched; with 0.12 s, 3 of 5; with 0.25 s, 3 of 5 and then 5 of 5. Nothing is acknowledged, so `devStatus` is the only way to know a color or brightness command arrived.
+- An H6056 answers the scan without an `ip` field. The address the reply came from is the light.
+- A plain color command takes a light out of per-bulb mode: an H6056 streaming a pattern showed one solid color within 1.5 s of a `colorwc`, with no per-bulb-mode-off packet.
+- `devStatus` never shows per-bulb colors or whether per-bulb mode is on. Check by eye or camera.
+- Slot counts for 97 models, most of them unconfirmed, are in [models.json](../models.json).
+
 Sources: [Govee LAN guide](https://app-h5.govee.com/user-manual/wlan-guide), [LAN protocol notes, razer section](https://github.com/damient/govee-toolkit/blob/main/docs/protocol/lan.md#23-per-segment-color--the-razer-raw-channel).
 
 ## Bluetooth
