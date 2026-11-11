@@ -905,11 +905,12 @@ def reconnect(key):
     push(key, look(st[key]), remember=False)
 
 
-def parse_scan(raw):
+def parse_scan(raw, sender=None):
     """One LAN scan reply -> (device id, ip, model), or None if it is not a usable Govee reply."""
     try:
         d = json.loads(raw)["msg"]["data"]
-        dev, addr, sku = str(d["device"]), str(d["ip"]), str(d.get("sku") or "Govee")[:20]
+        # Some firmware leaves "ip" out of the reply (H6056, Wi-Fi 1.00.16); the packet's sender is the light.
+        dev, addr, sku = str(d["device"]), str(d.get("ip") or sender or ""), str(d.get("sku") or "Govee")[:20]
         if not 0 < len(dev) <= 64 or not ipaddress.ip_address(addr).is_private:  # never stream to the internet
             return None
     except (ValueError, KeyError, TypeError):
@@ -922,8 +923,8 @@ def discover():
     global found
     with scan_lock:
         if DRY:
-            replies = [json.dumps({"msg": {"cmd": "scan", "data": {"device": f"AA:BB:CC:DD:EE:FF:{0x1A + i:02X}:{0x2B + i:02X}",
-                                                                   "ip": f"192.168.0.{20 + i}", "sku": FAKE_SKUS[i % len(FAKE_SKUS)]}}}) for i in range(FAKE)]
+            replies = [(json.dumps({"msg": {"cmd": "scan", "data": {"device": f"AA:BB:CC:DD:EE:FF:{0x1A + i:02X}:{0x2B + i:02X}",
+                                                                    "ip": f"192.168.0.{20 + i}", "sku": FAKE_SKUS[i % len(FAKE_SKUS)]}}}), None) for i in range(FAKE)]
         else:
             lan_gate()
             replies = []
@@ -945,7 +946,7 @@ def discover():
                 while time.time() < end:
                     try:
                         m.sendto(msg, ("239.255.255.250", 4001))
-                        replies.append(r.recvfrom(4096)[0])
+                        replies.append(r.recvfrom(4096))
                     except socket.timeout:
                         pass
                     except OSError as e:
@@ -955,8 +956,8 @@ def discover():
             if not replies and getattr(failed, "errno", None) == errno.EHOSTUNREACH:
                 raise failed  # blocked, not empty: say so instead of "no lights found"
         seen = {}
-        for raw in replies:
-            got = parse_scan(raw)
+        for raw, sender in replies:
+            got = parse_scan(raw, sender and sender[0])
             if got:
                 seen[got[0]] = {"ip": got[1], "sku": got[2]}
         found = seen

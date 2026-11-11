@@ -92,6 +92,11 @@ class SelfChecks(unittest.TestCase):
         assert app.parse_scan(ok) == ("12:34:56:78:9A:BC:DE:F0", "192.168.1.9", "H805D") and app.short("12:34:56:78:9A:BC:DE:F0") == "DEF0"
         for bad in ("junk", "[]", '{"msg": {"data": {"ip": "8.8.8.8", "device": "x"}}}', '{"msg": {"data": {"device": "x"}}}'):
             assert app.parse_scan(bad) is None, bad
+        # an H6056 on Wi-Fi firmware 1.00.16 answers the scan without "ip": the packet's sender is the light
+        no_ip = '{"msg":{"cmd":"scan","data":{"device":"AA:BB:CC:DD:EE:FF:1A:2B","sku":"H6056","wifiVersionSoft":"1.00.16"}}}'
+        assert app.parse_scan(no_ip) is None
+        assert app.parse_scan(no_ip, "192.168.1.9") == ("AA:BB:CC:DD:EE:FF:1A:2B", "192.168.1.9", "H6056")
+        assert app.parse_scan(no_ip, "8.8.8.8") is None  # the private-address rule still applies to the sender
         app.found = {"12:34:56:78:9A:BC:DE:F0": {"ip": "192.168.1.9", "sku": "H805D"}}
         for bad in ([], [{"id": "nope", "name": "X"}], [{"id": "12:34:56:78:9A:BC:DE:F0", "name": "  "}], "x"):
             try:
