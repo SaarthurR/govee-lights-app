@@ -39,7 +39,7 @@ Tested Nov 11, 2026 on an H608B (Wi-Fi firmware 1.01.17), H612B (1.06.24), H16C0
 - An H6056 answers the scan without an `ip` field. The address the reply came from is the light.
 - A plain color command takes a light out of per-bulb mode: an H6056 streaming a pattern showed one solid color within 1.5 s of a `colorwc`, with no per-bulb-mode-off packet.
 - `devStatus` never shows per-bulb colors or whether per-bulb mode is on. Check by eye or camera.
-- Slot counts for 97 models, most of them unconfirmed, are in [models.json](../models.json).
+- Slot counts for 101 models, most of them unconfirmed, are in [models.json](../models.json).
 
 Sources: [Govee LAN guide](https://app-h5.govee.com/user-manual/wlan-guide), [LAN protocol notes, razer section](https://github.com/damient/govee-toolkit/blob/main/docs/protocol/lan.md#23-per-segment-color--the-razer-raw-channel).
 
