@@ -643,6 +643,7 @@
   <div class="card">
     <h2>App</h2>
     <label class="setrow" for="autoUpdate"><span>Auto-update<small id="appVersion"></small></span><input type="checkbox" class="switch" role="switch" id="autoUpdate" checked onchange="post('/api/update', {enabled:this.checked})"></label>
+    <label class="setrow" for="tryUntested"><span>Try untested models<small>Per-bulb effects on lights nobody has confirmed yet</small></span><input type="checkbox" class="switch" role="switch" id="tryUntested" onchange="post('/api/untested', {enabled:this.checked})"></label>
     <div class="setrow"><span>Found a bug?</span><a class="btn" id="feedback" href="https://github.com/SaarthurR/govee-lights-app/issues/new?labels=feedback" target="_blank" rel="noopener noreferrer">Send feedback<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9 8h7v7"/></svg></a></div>
     <details><summary>Lights turning on or off by themselves?</summary>
       <p class="hint">Timers and automations in the Govee Home app keep running. Check Timer and Automation for that light in Govee Home.</p>
@@ -1659,6 +1660,7 @@ async function refresh(quick) {  // quick = only the bulbs; the rest of the page
   serverVersion = state.update?.version || '';
   $('feedback').href = feedbackURL();
   $('autoUpdate').checked = state.update?.enabled !== false;
+  $('tryUntested').checked = !!state.untested;
   $('appVersion').textContent = (state.update?.version || state.version).slice(0, 12);
   $('askCard').hidden = $('themesAsk').hidden = !(state.claude && state.ask);
   $('askUse').hidden = !state.claude; $('askUse').checked = !!state.ask; $('askGet').hidden = state.claude;
