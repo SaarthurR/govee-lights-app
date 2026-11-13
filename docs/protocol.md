@@ -32,6 +32,7 @@ What we learned on real strips:
 Tested Nov 11, 2026 on an H608B (Wi-Fi firmware 1.01.17), H612B (1.06.24), H16C0 (1.01.14), H61D3 (1.06.24), H610A (2.06.02) and H6056 (1.00.16):
 
 - Slot counts: H608B 15, H612B 10, H16C0 7, H61D3 7. Each of these four was painted half red, half blue through the app and showed two colors. On the H16C0 slot 1 is the bottom. The H61D3 count is not its segment count in community tables: one lists 15, and sent 15 colors it showed one flat color (tested Sep 5, 2026).
+- H610A: 24 slots, the count SignalRGB lists. Set to red and blue alternating one per slot (tested Nov 12, 2026), it showed 24 clean blocks.
 - H6056: 12 slots, 6 on each bar. Sent 6 colors it stretched each over two segments, the way the H805D stretched 84; sent 24 it went dark. One slot lit at a time in a 12-color frame lit half the width that one slot of a 6-color frame did.
 - The byte after `B0` can be `00` or `01` on the H608B, H612B, H16C0, H61D3 and H6056: both showed the painted pattern, not one flat color. Each was tried from a fresh per-bulb enable with one value only.
 - Lights drop commands that arrive back to back. With color, power, brightness and per-bulb mode sent with no gap, per-bulb mode came on for 5 of 12 lights over three runs (H608B, H612B, H16C0, H61D3), and the lights that missed it showed their old solid color while frames streamed. With 0.12 s or 0.25 s between commands to one light it came on for 12 of 12. The app leaves 0.12 s.

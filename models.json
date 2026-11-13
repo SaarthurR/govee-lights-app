@@ -37,7 +37,7 @@
     "H60B1": {"slots": 3, "status": "untested", "name": "Torchiere Floor Lamp", "source": "govee-local-api", "govee_lists_razer": true},
     "H60B2": {"slots": 3, "status": "untested", "name": "Tree Floor Lamp", "source": "govee-local-api", "govee_lists_razer": true},
     "H60C1": {"slots": 3, "status": "untested", "source": "govee-local-api"},
-    "H610A": {"slots": 24, "status": "untested", "name": "Glide Lively Wall Light", "source": "signalrgb"},
+    "H610A": {"slots": 24, "status": "tested", "name": "Glide Lively Wall Light", "source": "hardware", "tested": "2026-11-12, Wi-Fi firmware 2.06.02", "note": "count from SignalRGB; red and blue alternating one per slot showed 24 clean blocks"},
     "H610E": {"slots": 7, "status": "untested", "source": "govee-local-api"},
     "H610F": {"slots": 7, "status": "untested", "source": "govee-local-api"},
     "H612B": {"slots": 10, "status": "tested", "name": "7.5m RGBIC+W Strip Light", "source": "hardware", "tested": "2026-11-11, Wi-Fi firmware 1.06.24"},

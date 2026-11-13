@@ -102,7 +102,7 @@ class ModelChecks(unittest.TestCase):
             self.assertEqual(app.read_models(bad), ({"H1": 5, "H3": 4}, {"H2": 9}))
 
     def test_untested_models_stream_only_when_the_user_asks(self):
-        sku = "H610A"
+        sku = "H6047"
         self.assertIn(sku, app.UNTESTED)
         app.add_light(sku, sku, sku, "192.168.0.20")
         try:
