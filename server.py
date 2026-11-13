@@ -14,9 +14,25 @@ APP_VERSION = update.settings()['version']
 HERE = Path(__file__).parent
 SAVE = Path(os.environ.get("GOVEE_STATE", HERE / "state.json"))   # lights, last look + history per light, themes, schedule; survives restarts
 N = 255   # packet limit; each supported model streams its own bulb count, one RGB triple per bulb
-# Streaming slots, not physical LED counts: docs/protocol.md (H805D), OpenRGB's Govee table (H619A).
-MODELS = {"H805D": {"bulbs": 132, "razer": True}, "H619A": {"bulbs": 20, "razer": True},
-          "H6008": {"bulbs": 1, "razer": False}}  # false = no verified streaming support in this app
+# Streaming slots, not physical LED counts. models.json has every model someone has a count for, one per line.
+BUILTIN = {"H805D": 132, "H619A": 20}  # used when models.json is missing or unreadable
+
+
+def read_models(path):
+    """models.json -> ({model: slots, streamed by default}, {model: slots, untested: only with Try untested models})."""
+    try:
+        streamed, untested = {}, {}
+        for sku, m in json.loads(Path(path).read_text())["models"].items():
+            if type(m["slots"]) is not int or not 0 < m["slots"] <= N:
+                raise ValueError(sku)
+            (streamed if m.get("stream", m.get("status") == "tested") else untested)[sku] = m["slots"]
+        return streamed, untested
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return dict(BUILTIN), {}
+
+
+STREAMED, UNTESTED = read_models(HERE / "models.json")
+MODELS = {sku: {"bulbs": n, "razer": True} for sku, n in STREAMED.items()} | {"H6008": {"bulbs": 1, "razer": False}}  # false = no streaming
 BASIC = MODELS["H6008"]
 FPS = 12
 HISTORY = 30
@@ -75,6 +91,10 @@ govee_lock = threading.Lock()
 govee_read_at = 0.0
 observed = {}  # last successful LAN sample, never persisted as a fresh baseline
 command_at = {}
+# Lights drop commands sent back to back. With no gap, per-bulb mode came on for 5 of 12 lights across three runs
+# (H608B, H612B, H16C0, H61D3); with a gap it came on for 12 of 12 (tested Nov 11, 2026). See docs/protocol.md.
+GAP = 0.12  # seconds between commands to one light; stream frames are not held back
+sent_at = {}  # light -> when its last command went out (time.monotonic())
 outside = {}  # bounded, local power-change history
 scene_cache = {}  # public SKU catalogs; no account key
 scene_lock = threading.Lock()
@@ -83,6 +103,7 @@ flashing = set()  # lights blinking right now for "which one is this?"
 SAMPLE = DRY and os.environ.get("GOVEE_SAMPLE") == "1"
 CLAUDE = shutil.which("claude") is not None
 ask_on = True  # the user's Ask Claude choice; saves from before the choice count as on
+try_untested = False  # Settings: also stream per-bulb to models whose count nobody has confirmed (UNTESTED)
 
 
 def short(dev):
@@ -90,7 +111,8 @@ def short(dev):
 
 
 def capability(dev):
-    cap = MODELS.get((lights.get(dev) or found.get(dev) or {}).get("sku"), BASIC)
+    sku = (lights.get(dev) or found.get(dev) or {}).get("sku")
+    cap = MODELS.get(sku) or ({"bulbs": UNTESTED[sku], "razer": True} if try_untested and sku in UNTESTED else BASIC)
     n = (lights.get(dev) or {}).get("bulbs")  # the user's own count: strings can be unplugged or added
     return dict(cap, bulbs=n) if n and cap["razer"] else cap
 
@@ -175,7 +197,12 @@ def send(key, cmd, data):
             command_at[key] = time.monotonic()
         if not DRY:
             lan_gate()
+            paced = cmd != "razer" or data["pt"] == ARM_PT  # stream frames are never held back
+            if paced:
+                time.sleep(max(0, sent_at.get(key, 0) + GAP - time.monotonic()))
             sock.sendto(json.dumps({"msg": {"cmd": cmd, "data": data}}).encode(), ((lights.get(key) or found[key])["ip"], 4003))
+            if paced:
+                sent_at[key] = time.monotonic()
 
 
 def checksum(data):
@@ -314,6 +341,7 @@ def razer_frame(colors):
 
 
 ARM = [0xBB, 0x00, 0x01, 0xB1, 0x01]  # per-bulb mode on; re-sending it while streaming blacks the strip out
+ARM_PT = base64.b64encode(bytes(ARM + [0x0A])).decode()  # ARM as it goes out, with its checksum
 
 
 def mix(a, b, t):
@@ -483,6 +511,7 @@ def save():
     data["_outside"] = outside
     data["_paused"] = sorted(paused)
     data["_ask"] = ask_on
+    data["_try_untested"] = try_untested
     data["_lan_asked"] = lan_asked
     tmp = SAVE.with_suffix(".tmp")
     try:
@@ -522,14 +551,15 @@ def load():
             bad = True
             return {}
         return value
-    global location, govee_key, ask_on, lan_asked
+    global location, govee_key, ask_on, lan_asked, try_untested
     govee_key = data.get("_govee_key", "")
     if not isinstance(govee_key, str):
         bad, govee_key = True, ""
-    for name in ("_ask", "_lan_asked"):
+    for name in ("_ask", "_lan_asked", "_try_untested"):
         if name in data and type(data[name]) is not bool:
             bad = True
     ask_on = data.get("_ask") is not False
+    try_untested = data.get("_try_untested") is True  # before the lights load: it decides how many bulbs each has
     lan_asked = data.get("_lan_asked") is True
     for dev, v in section("_lights").items():
         if (not isinstance(dev, str) or not 0 < len(dev) <= 64 or not isinstance(v, dict) or
@@ -905,11 +935,12 @@ def reconnect(key):
     push(key, look(st[key]), remember=False)
 
 
-def parse_scan(raw):
+def parse_scan(raw, sender=None):
     """One LAN scan reply -> (device id, ip, model), or None if it is not a usable Govee reply."""
     try:
         d = json.loads(raw)["msg"]["data"]
-        dev, addr, sku = str(d["device"]), str(d["ip"]), str(d.get("sku") or "Govee")[:20]
+        # Some firmware leaves "ip" out of the reply (H6056, Wi-Fi 1.00.16); the packet's sender is the light.
+        dev, addr, sku = str(d["device"]), str(d.get("ip") or sender or ""), str(d.get("sku") or "Govee")[:20]
         if not 0 < len(dev) <= 64 or not ipaddress.ip_address(addr).is_private:  # never stream to the internet
             return None
     except (ValueError, KeyError, TypeError):
@@ -922,8 +953,8 @@ def discover():
     global found
     with scan_lock:
         if DRY:
-            replies = [json.dumps({"msg": {"cmd": "scan", "data": {"device": f"AA:BB:CC:DD:EE:FF:{0x1A + i:02X}:{0x2B + i:02X}",
-                                                                   "ip": f"192.168.0.{20 + i}", "sku": FAKE_SKUS[i % len(FAKE_SKUS)]}}}) for i in range(FAKE)]
+            replies = [(json.dumps({"msg": {"cmd": "scan", "data": {"device": f"AA:BB:CC:DD:EE:FF:{0x1A + i:02X}:{0x2B + i:02X}",
+                                                                    "ip": f"192.168.0.{20 + i}", "sku": FAKE_SKUS[i % len(FAKE_SKUS)]}}}), None) for i in range(FAKE)]
         else:
             lan_gate()
             replies = []
@@ -945,7 +976,7 @@ def discover():
                 while time.time() < end:
                     try:
                         m.sendto(msg, ("239.255.255.250", 4001))
-                        replies.append(r.recvfrom(4096)[0])
+                        replies.append(r.recvfrom(4096))
                     except socket.timeout:
                         pass
                     except OSError as e:
@@ -955,8 +986,8 @@ def discover():
             if not replies and getattr(failed, "errno", None) == errno.EHOSTUNREACH:
                 raise failed  # blocked, not empty: say so instead of "no lights found"
         seen = {}
-        for raw in replies:
-            got = parse_scan(raw)
+        for raw, sender in replies:
+            got = parse_scan(raw, sender and sender[0])
             if got:
                 seen[got[0]] = {"ip": got[1], "sku": got[2]}
         found = seen
@@ -1009,11 +1040,36 @@ def save_lights(items):
         push(dev, {"on": True, "brightness": st[dev]["brightness"]})
 
 
+def set_try_untested(enabled):
+    """Settings switch: per-bulb streaming for saved lights whose model is only in the untested list."""
+    global try_untested
+    if type(enabled) is not bool:
+        raise ValueError("Try untested models must be on or off.")
+    with lock:
+        if enabled == try_untested:
+            return
+        try_untested = enabled
+        changed = [k for k, d in lights.items() if d.get("sku") in UNTESTED]
+        for k in changed:  # the light gains or loses its bulbs, like a new bulb count in setup
+            try:
+                st[k].update(light_settings(k, look(st[k])))
+            except ValueError:  # an animation block longer than the new strip
+                st[k].update(light_settings(k, dict(look(st[k]), effect="solid", animation=None)))
+            st[k]["frame"] = [[0, 0, 0]] * capability(k)["bulbs"]
+        save()
+    for k in changed:  # per-bulb mode on, or back to one solid color (a color command takes a light out of per-bulb mode)
+        if st[k]["on"] and k not in paused:
+            try:
+                reconnect(k)
+            except OSError as e:
+                st[k]["error"] = f"reconnect: {e}"
+
+
 def forget_light(dev):
     with lock:
         if dev not in lights:
             raise ValueError("unknown light")
-        for d in (lights, st, schedule, outside, observed, command_at):
+        for d in (lights, st, schedule, outside, observed, command_at, sent_at):
             d.pop(dev, None)
         paused.discard(dev)
         save()
@@ -1692,7 +1748,7 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history" and (x != "frame" or show in ("all", k))} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d | {"capabilities": capability(k)}
                                                for k, d in saved if k in st},
                                     "found": [{"id": k, "sku": d["sku"], "short": short(k)} for k, d in found.items() if k not in lights],
-                                    "n": N, "phone": PHONE, "phone_ip": PHONE_IP, "version": VERSION, "claude": CLAUDE, "ask": ask_on, "update": dict(update.settings(), version=APP_VERSION),
+                                    "n": N, "phone": PHONE, "phone_ip": PHONE_IP, "version": VERSION, "claude": CLAUDE, "ask": ask_on, "untested": try_untested, "update": dict(update.settings(), version=APP_VERSION),
                                     "lan": {"asked": lan_open(), "allowed": allowed, "fallback": allowed is False and fallback_app()}})
         if self.path == "/api/previews":
             return self.reply(200, PREVIEWS)
@@ -1729,6 +1785,9 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"ok": True})
             if self.path == "/api/update":
                 update.set_enabled(body.get("enabled"))
+                return self.reply(200, {"ok": True})
+            if self.path == "/api/untested":
+                set_try_untested(body.get("enabled"))
                 return self.reply(200, {"ok": True})
             if self.path == "/api/govee/scenes":
                 return self.reply(200, imported_scenes(body.get("light")))

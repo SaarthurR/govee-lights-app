@@ -43,10 +43,27 @@ Add, rename or remove lights later with **Manage lights** at the top of the page
 | Level | Model | What works |
 | --- | --- | --- |
 | Tested | H805D | Per-bulb effects (132 bulbs, each its own color), paint, power, brightness, timers. |
+| Tested | H608B, H612B, H16C0, H61D3, H610A, H6056 | Per-bulb paint, power, brightness. Bulb counts and what was seen are in [models.json](models.json) and [docs/protocol.md](docs/protocol.md). |
 | Should work | H619A | Per-bulb effects (20 color slots) from [OpenRGB's model table](https://github.com/CalcProgrammer1/OpenRGB/blob/master/Controllers/GoveeController/RGBController_Govee.cpp#L38-L58); not tested on real hardware. |
+| Untested | 93 more models in [models.json](models.json) | Basic, until you turn on **Try untested models** in **Settings**. Then per-bulb effects with a bulb count taken from another project, which may be wrong. |
 | Basic | Other models with LAN Control | On/off, brightness, one solid color and timers. |
 
 Govee's [LAN guide](https://app-h5.govee.com/user-manual/wlan-guide) lists most models with LAN Control. Please [open an issue](https://github.com/SaarthurR/govee-lights-app/issues) with your model and whether it worked, or use **Send feedback** in **Settings**.
+
+### Help test a model
+
+[models.json](models.json) has a bulb count for 101 models, one per line. Seven were watched working on real lights. The rest come from other open-source projects and nobody has confirmed them here; two that were checked turned out wrong (the H61D3 was listed as 15 and is 7, the H6056 as 6 and is 12).
+
+If your model is listed as `untested`:
+
+1. Turn on **Try untested models** in **Settings**.
+2. Select a few bulbs at one end and paint them one color, then the rest another.
+3. Two clean colors means the count is right. One flat color, a stretched pattern or a dark light means it is wrong: change the bulbs number in **Manage lights** and try again. Counts that have turned up so far are the listed number, half of it and double it.
+4. [Report what you saw](https://github.com/SaarthurR/govee-lights-app/issues/new?template=model-report.yml), or send a pull request that changes your model's line to `"status": "tested"` with the count, the date and what you saw.
+
+If your model is not listed at all, a report with the count that worked adds it.
+
+The untested counts are taken from the mined device portfolio in [Suffuse](https://github.com/andyed/suffuse), which records where each one came from. A count you confirm or correct here is worth reporting there too.
 
 ## Uninstall
 

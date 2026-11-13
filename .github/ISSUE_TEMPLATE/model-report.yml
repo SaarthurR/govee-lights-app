@@ -1,0 +1,36 @@
+name: Model report
+description: Tell us how per-bulb effects worked on your Govee model, so models.json can be corrected.
+title: "Model report: "
+labels: ["model"]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: The H number, as shown in Manage lights. Example H6056.
+    validations:
+      required: true
+  - type: input
+    id: slots
+    attributes:
+      label: Bulb count you used
+      description: The number in the bulbs box in Manage lights when it looked right, or the last one you tried.
+    validations:
+      required: true
+  - type: dropdown
+    id: saw
+    attributes:
+      label: What you saw with Paint, half the bulbs one color and half another
+      options:
+        - Two colors, each bulb or segment its own color
+        - Two colors, but stretched or in the wrong places
+        - One flat color
+        - The light went dark
+        - Nothing changed
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Other counts you tried and what each did, how the light is laid out (two bars, a cut strip, panels), and the firmware version from Govee Home if you can find it.
