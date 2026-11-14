@@ -1,3 +1,4 @@
+import threading
 """Capability checks with fake lights only; no network or Claude calls."""
 import base64
 import datetime as dt
@@ -60,6 +61,10 @@ class ModelChecks(unittest.TestCase):
     def test_commands_to_one_light_are_spaced_but_frames_are_not(self):
         clock, naps = [100.0], []
         def nap(seconds):
+            free = []  # the wait must not hold `lock`, or every other light's stream stalls with it
+            t = threading.Thread(target=lambda: free.append(app.lock.acquire(blocking=False) and (app.lock.release() or True)))
+            t.start(); t.join()
+            self.assertEqual(free, [True])
             naps.append(round(seconds, 3)); clock[0] += seconds
         app.sent_at.clear()
         with patch.object(app, "DRY", False), patch.object(app, "lan_gate"), patch.object(app, "sock") as sock, \

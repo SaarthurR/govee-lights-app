@@ -95,6 +95,7 @@ command_at = {}
 # (H608B, H612B, H16C0, H61D3); with a gap it came on for 12 of 12 (tested Nov 11, 2026). See docs/protocol.md.
 GAP = 0.12  # seconds between commands to one light; stream frames are not held back
 sent_at = {}  # light -> when its last command went out (time.monotonic())
+pace_lock = threading.Lock()
 outside = {}  # bounded, local power-change history
 scene_cache = {}  # public SKU catalogs; no account key
 scene_lock = threading.Lock()
@@ -190,6 +191,11 @@ def wake():
 
 
 def send(key, cmd, data):
+    if not DRY and (cmd != "razer" or data["pt"] == ARM_PT):  # stream frames are never held back
+        with pace_lock:  # book this light's next slot, then wait outside `lock` so other lights keep streaming
+            at = max(time.monotonic(), sent_at.get(key, 0) + GAP)
+            sent_at[key] = at
+        time.sleep(max(0, at - time.monotonic()))
     with lock:
         if cmd == "razer" and (not capability(key)["razer"] or key in paused):
             return
@@ -197,12 +203,7 @@ def send(key, cmd, data):
             command_at[key] = time.monotonic()
         if not DRY:
             lan_gate()
-            paced = cmd != "razer" or data["pt"] == ARM_PT  # stream frames are never held back
-            if paced:
-                time.sleep(max(0, sent_at.get(key, 0) + GAP - time.monotonic()))
             sock.sendto(json.dumps({"msg": {"cmd": cmd, "data": data}}).encode(), ((lights.get(key) or found[key])["ip"], 4003))
-            if paced:
-                sent_at[key] = time.monotonic()
 
 
 def checksum(data):
