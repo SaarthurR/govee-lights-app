@@ -87,10 +87,13 @@
   .days button[aria-pressed=true] { background:var(--ink); color:#fff; font-weight:600; }
   .timer { display:flex; align-items:center; gap:12px; border-top:1px solid var(--line); }
   .timer:first-child { border-top:0; }
-  .timer .open { flex:1; min-width:0; min-height:68px; padding:12px 0; border:0; background:none; font:inherit; color:var(--ink); text-align:left; cursor:pointer; }
-  .timer .t { font-size:24px; font-weight:600; letter-spacing:-.02em; line-height:1.15; font-variant-numeric:tabular-nums; }
-  .timer .d { font-size:14px; color:var(--mute); margin-top:3px; }
-  .timer.off .t { color:var(--mute); }
+  .timer .open { flex:1; min-width:0; min-height:56px; padding:10px 0; border:0; background:none; font:inherit; color:var(--ink); text-align:left; cursor:pointer;
+    display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:12px; }
+  .timer .day { font-size:15px; font-weight:600; color:var(--mute); }
+  .timer .t { font-size:18px; font-weight:600; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .timer .at { display:flex; align-items:center; gap:5px; font-size:15px; color:var(--mute); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .timer .at .i { width:16px; height:16px; }
+  .timer.off :is(.t, .day, .at) { color:var(--mute); opacity:.6; }
   .timer .power::before { content:""; position:absolute; inset:-6px -4px; }  /* 44px hit area */
   .warn { background:#fff4de; color:#6b4300; border-radius:12px; padding:10px 12px; font-size:14px; margin:10px 0 0; text-wrap:pretty; }
   :is(#timerSheet, #askSheet) { border:0; padding:0; background:none; width:min(100% - 24px, 460px); max-width:100%; max-height:calc(100dvh - 24px); overscroll-behavior:contain; }
@@ -882,16 +885,23 @@ function nextWords(sc) {
   if (!t) return 'Nothing coming up. All timers are off.';
   return `Next: ${t.action === 'on' ? 'On' : 'Off'} at ${fmt(sc.next.at.slice(11))} ${relDay(new Date(sc.next.at))}${t.theme && hasLook(t.theme) ? ' with ' + t.theme : ''}`;
 }
+const SUN = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16M12 9v2M6 12.5l1.5 1M18 12.5l-1.5 1M8 18a4 4 0 0 1 8 0"/></svg>';
+function dayWords(days) {  // [4,5,6] -> "Fri–Sun", [0,2] -> "Mon, Wed"
+  if (days.length === 7) return 'Daily';
+  const runs = []; days.forEach(d => runs.length && runs.at(-1).at(-1) === d - 1 ? runs.at(-1).push(d) : runs.push([d]));
+  return runs.map(r => r.length > 2 ? `${SHORT[r[0]]}–${SHORT[r.at(-1)]}` : r.map(d => SHORT[d]).join(', ')).join(', ');
+}
 function timerRow(k, t, ts) {
   const r = document.createElement('div'); r.className = 'timer' + (t.enabled ? '' : ' off');
   const b = document.createElement('button'); b.className = 'open'; b.onclick = () => openTimer(k, t);
-  const big = document.createElement('div'); big.className = 't';
-  const sun = t.time.startsWith('sunset'); big.textContent = sun ? offsetWords(offsetOf(t.time)) : fmt(t.time);
-  const d = document.createElement('div'); d.className = 'd';
-  d.textContent = [sun && sunsetToday && 'today ' + fmt(timeOf(t.time)), t.action === 'on' ? 'On' : 'Off', repeat(t.days, isNight(t, ts)), t.theme && hasLook(t.theme) && t.theme].filter(Boolean).join(' · ');
-  b.setAttribute('aria-label', `Edit timer: ${big.textContent}, ${d.textContent}`); b.append(big, d);
+  const cell = (cls, text) => { const x = document.createElement('span'); x.className = cls; x.textContent = text; return x; };
+  const sun = t.time.startsWith('sunset'), at = sun ? (sunsetToday ? fmt(timeOf(t.time)) : offsetWords(offsetOf(t.time))) : fmt(t.time);
+  const what = t.action === 'off' ? 'Off' : t.theme && hasLook(t.theme) ? t.theme : 'On';
+  const when = cell('at', at); if (sun) { when.insertAdjacentHTML('afterbegin', SUN); when.title = offsetWords(offsetOf(t.time)); }
+  b.append(cell('day', dayWords(t.days)), cell('t', what), when);
+  b.setAttribute('aria-label', `Edit timer: ${repeat(t.days, isNight(t, ts))}, ${what} at ${at}${sun ? ', ' + offsetWords(offsetOf(t.time)) : ''}`);
   const sw = document.createElement('button'); sw.className = 'power' + (t.enabled ? ' on' : ''); sw.setAttribute('aria-pressed', t.enabled);
-  sw.setAttribute('aria-label', `Use timer ${big.textContent} ${t.action}`);
+  sw.setAttribute('aria-label', `Use timer ${what} ${dayWords(t.days)}`);
   sw.onclick = () => saveTimers(k, {edit: [{id: t.id, enabled: !t.enabled}]}, `Timer ${t.enabled ? 'off' : 'on'}`);
   r.append(b, sw); return r;
 }
@@ -903,7 +913,7 @@ function drawTimers() {
     if (keys.length > 1) el('div', 'group-title', nameOf(k)).style.margin = out.length > 1 ? '20px 0 6px' : '0 0 6px';
     if (sc.use) el('div', 'summary', nextWords(sc));
     clashes(sc.timers).forEach(c => el('p', 'warn', clashWords(c)));
-    const at = t => mins(timeOf(t.time) || '00:00') + (isNight(t, sc.timers) ? 1440 : 0);  // a night's off sorts after its evening
+    const at = t => (t.action === 'off') * 1e5 + t.days[0] * 1e4 + mins(timeOf(t.time) || '00:00');  // read like a week: Mon..Sun, offs last
     el('div', 'timers', '').append(...[...sc.timers].sort((a, b) => at(a) - at(b)).map(t => timerRow(k, t, sc.timers)));
   }
   $('timers').replaceChildren(...out);
