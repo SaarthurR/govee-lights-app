@@ -54,7 +54,9 @@ function Install-Lights {
     }
     $url = if ($env:GOVEE_ZIP) { $env:GOVEE_ZIP } else { "https://github.com/SaarthurR/govee-lights-app/archive/$(if ($version) { $version } else { 'main' }).zip" }
     Invoke-WebRequest $url -OutFile "$tmp/app.zip" -UseBasicParsing
-    Expand-Archive "$tmp/app.zip" "$tmp/app"
+    # Expand-Archive in Windows PowerShell 5.1 broke after a late-2026 Windows update ("ExtractToDirectory" overload)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory("$tmp/app.zip", "$tmp/app")
     $source = (Get-ChildItem "$tmp/app")[0].FullName
     if (-not (Test-Path "$source/server.py")) { throw 'Download is missing server.py' }
     & $py -m py_compile "$source/server.py" "$source/launcher/launch.py" "$source/launcher/update.py" "$source/launcher/build.py"

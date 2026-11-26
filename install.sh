@@ -135,7 +135,7 @@ elif service == "systemd":
     def quote(s):
         return json.dumps(s).replace("%", "%%")
     p.write_text('[Unit]\nDescription=Lights\n[Service]\nType=simple\n' +
-        'WorkingDirectory=' + quote(directory) + '\nExecStart=' + quote(sys.executable) + ' -u ' + quote(directory + '/launcher/launch.py') + ' --server' + '\n' +
+        'WorkingDirectory=' + directory.replace("%", "%%") + '\nExecStart=' + quote(sys.executable) + ' -u ' + quote(directory + '/launcher/launch.py') + ' --server' + '\n' +  # systemd 259 rejects a quoted WorkingDirectory
         ''.join('Environment=' + quote(k + '=' + v) + '\n' for k, v in env.items()) +
         'Restart=always\nRestartSec=3\n[Install]\nWantedBy=default.target\n')
 PY
