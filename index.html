@@ -1302,8 +1302,8 @@ function draw() {
   $('paintBtn').textContent = 'Paint ' + (sel.size === 1 ? '1 bulb' : sel.size + ' bulbs');
   $('paintBtn').disabled = (light === 'all' ? ids() : [light]).some(k => !state?.lights[k]?.frame);
   const s = cur(), f = s?.frame || [], scene = s?.effect === 'scene';  // right after a light switch the reply may not have its bulbs yet
-  $('sceneNote').hidden = !scene; $('sceneNote').textContent = scene ? `${s.scene} is playing on the light. Its colors can't be shown here.` : '';
-  $('strip').querySelectorAll('.bulb').forEach((b, i) => { b.style.background = s && s.on && !scene ? `rgb(${f[i] || [0,0,0]})` : ''; b.classList.toggle('sel', sel.has(i)); });
+  $('sceneNote').hidden = !scene; $('sceneNote').textContent = scene ? (s.frame ? `${s.scene} is playing on the light. These are its colors; the light moves them on its own.` : `${s.scene} is playing on the light. Its colors can't be shown here.`) : '';
+  $('strip').querySelectorAll('.bulb').forEach((b, i) => { b.style.background = s && s.on && (!scene || s.frame) ? `rgb(${f[i] || [0,0,0]})` : ''; b.classList.toggle('sel', sel.has(i)); });
 }
 function selectEvery(k) { sel.clear(); for (let i = 0; i < N; i += k) sel.add(i); draw(); }
 async function paint() {

@@ -326,6 +326,28 @@ def play_scene(keys, name, *, remember=True, persist=True):
     return True
 
 
+def scene_palette(param):
+    """A scene's RGB colors, in order (H805D block layout; all catalog scenes fit it). [] if the bytes don't fit."""
+    try:
+        raw, pos, out = base64.b64decode(param), 1, []
+        for _ in range(raw[0]):
+            start = pos + 1
+            pos = start + raw[pos]
+            c = start + 7 + 6 * raw[start + 5]
+            out += [list(raw[i:i + 3]) for i in range(c + 3, c + 3 + 3 * raw[c + 2], 3)]
+        return [] if pos != len(raw) else [c for i, c in enumerate(out) if c not in out[:i]]
+    except (ValueError, TypeError, IndexError):
+        return []
+
+
+def scene_frame(key):
+    """Preview bulbs for a playing scene: its colors in bands of 6. The motion runs on the light and can't be shown."""
+    catalog = scene_catalog(lights[key]["sku"])
+    scene = next((s for c in catalog["categories"] for s in c["scenes"] if s["name"] == st[key]["scene"]), None)
+    colors = scene_palette(scene["param"]) if scene else []
+    return [colors[i // 6 % len(colors)] for i in range(capability(key)["bulbs"])] if colors else None
+
+
 def razer(key, raw):
     if not capability(key)["razer"]:
         return
@@ -1747,7 +1769,7 @@ class H(BaseHTTPRequestHandler):
             show = parse_qs(urlparse(self.path).query).get("light", ["all"])[0]  # the page polls 25x/s: send only the shown light's bulbs
             saved = list(lights.items())
             allowed = lan_allowed()
-            return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history" and (x != "frame" or show in ("all", k))} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | d | {"capabilities": capability(k)}
+            return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history" and (x != "frame" or show in ("all", k))} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | ({"frame": scene_frame(k)} if st[k]["effect"] == "scene" and show in ("all", k) else {}) | d | {"capabilities": capability(k)}
                                                for k, d in saved if k in st},
                                     "found": [{"id": k, "sku": d["sku"], "short": short(k)} for k, d in found.items() if k not in lights],
                                     "n": N, "phone": PHONE, "phone_ip": PHONE_IP, "version": VERSION, "claude": CLAUDE, "ask": ask_on, "untested": try_untested, "update": dict(update.settings(), version=APP_VERSION),

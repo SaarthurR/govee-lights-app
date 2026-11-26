@@ -81,6 +81,18 @@ class SceneChecks(unittest.TestCase):
         self.assertEqual(app.st['H805D']['scene'], 'Forest')
         self.assertIn('H805D', app.paused)
 
+    def test_scene_preview_shows_its_colors(self):
+        pal = app.scene_palette(PARAM)
+        self.assertEqual(pal[:3], [[255, 255, 0], [0, 255, 255], [255, 255, 255]])
+        self.assertEqual(len(pal), len({tuple(c) for c in pal}))
+        for bad in ('', 'AAAA', 'AQ==', PARAM[:-8]):
+            self.assertEqual(app.scene_palette(bad), [])
+        with patch.object(app, 'send'):
+            app.play_scene(['H805D'], 'Forest')
+        frame = app.scene_frame('H805D')
+        self.assertEqual(len(frame), app.capability('H805D')['bulbs'])
+        self.assertEqual(frame[:7], [pal[0]] * 6 + [pal[1]])
+
     def test_dry_socket_and_saved_state(self):
         with patch.object(app, 'sock') as sock:
             app.play_scene(['H805D', 'UNKNOWN'], 'Forest')
