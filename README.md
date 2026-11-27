@@ -26,7 +26,7 @@ irm https://raw.githubusercontent.com/SaarthurR/govee-lights-app/main/install.ps
 
 Then **open Govee Lights from Launchpad** (Mac), **the Start Menu** (Windows) or **your app menu** (Linux). No Terminal needed after this.
 
-**On a Mac, click Allow** when macOS asks to let Govee Lights find devices on your local network. Without it the app cannot reach your lights. If the installer says the native app could not be built, run `xcode-select --install` and install again.
+**On a Mac, click Allow** when macOS asks to let Govee Lights find devices on your local network. Without it the app cannot reach your lights. If the installer says the native app could not be built, run `xcode-select --install` and install again. **On Windows, click Allow** when the firewall asks about Python, for the same reason.
 
 The installer downloads this repo into `govee-lights` in your home folder, adds the app, and starts Lights at login (no admin needed). Run it again to update; your lights, themes and timers are kept. Lights also updates itself from `main` about once a day; turn **Auto-update** off in **Settings** to stop that. Read the scripts first if you like: [install.sh](install.sh), [install.ps1](install.ps1).
 

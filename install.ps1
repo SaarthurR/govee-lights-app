@@ -103,6 +103,7 @@ function Install-Lights {
     if ($UpdateOnly) { return }
     Start-Process $pythonw -ArgumentList "`"$launcher`""
     Write-Host "Lights: http://localhost:$port. Starts automatically at logon."
+    Write-Host 'If Windows asks about the firewall for Python, click Allow. Without it the app cannot find your lights.'
   } catch {
     $failure = $_
     if ($stopped -and (Test-Path "$tmp/old")) {
