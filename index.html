@@ -520,7 +520,7 @@
     </div>
     <div class="alert" id="alert" role="alert" hidden><span id="alertText"></span><button class="btn" id="alertFix" onclick="reconnect(this)">Reconnect</button></div>
     <p class="hint" id="allNote" style="margin:0 0 4px" hidden></p>
-    <p class="hint" id="basicNote" hidden>This light shows one color at a time.</p>
+    <p class="hint" id="basicNote" hidden><span id="basicText"></span> <a id="modelReport" target="_blank" rel="noopener noreferrer">Report your model</a></p>
     <div class="controls">
       <div class="ctl"><label class="small" for="power" id="powerLabel">Power</label><button class="power" id="power" aria-label="Power"></button></div>
       <div class="ctl grow"><label class="small" for="bright">Brightness <b id="brightVal" aria-hidden="true">100%</b></label><input type="range" id="bright" min="1" max="100" value="100"></div>
@@ -1266,7 +1266,15 @@ function syncControls() {
   const own = {rainbow: 'Rainbow makes its own colors. Pick another effect to use these.', custom: 'These are the colors of this animation. Change one and the animation uses it.'}[s.effect];
   $('colorsNote').textContent = own || ''; $('colorsNote').hidden = !own;
   const full = advanced();
-  document.body.classList.toggle('basic', !full); $('basicNote').hidden = full;
+  document.body.classList.toggle('basic', !full);
+  const here = (light === 'all' ? ids() : [lead()]).map(k => state.lights[k]);
+  const m = here.find(l => !l.capabilities.razer) || here.find(l => l.untested);
+  const note = !m ? '' : m.capabilities.razer ? 'Untested model. Colors stretched, flat or dark? Change its bulbs in Manage lights.'
+    : m.untested ? 'This light shows one color at a time. For bulb-by-bulb effects, turn on Try untested models in Settings.'
+    : m.known ? 'This light shows one color at a time.' : 'This light shows one color at a time. Its model isn’t tested here yet.';
+  if ($('basicText').textContent !== note) $('basicText').textContent = note;
+  $('basicNote').hidden = !note; $('modelReport').hidden = !m || m.known && !m.capabilities.razer;
+  if (m) $('modelReport').href = 'https://github.com/SaarthurR/govee-lights-app/issues/new?template=model-report.yml&model=' + encodeURIComponent(m.sku);
   $('swap').hidden = !full; $('chips').hidden = !full && page === 'control';
   $('liveCard').classList.toggle('off', !s.on); $('powerLabel').textContent = s.on ? 'On' : 'Off';
   const all = light === 'all' ? `Changes go to ${and(ids().map(nameOf))}. Showing ${nameOf(lead())}’s settings.` : '';

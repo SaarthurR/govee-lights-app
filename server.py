@@ -1769,7 +1769,7 @@ class H(BaseHTTPRequestHandler):
             show = parse_qs(urlparse(self.path).query).get("light", ["all"])[0]  # the page polls 25x/s: send only the shown light's bulbs
             saved = list(lights.items())
             allowed = lan_allowed()
-            return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history" and (x != "frame" or show in ("all", k))} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | ({"frame": scene_frame(k)} if st[k]["effect"] == "scene" and show in ("all", k) else {}) | d | {"capabilities": capability(k)}
+            return self.reply(200, {"lights": {k: {x: v for x, v in st[k].items() if x != "history" and (x != "frame" or show in ("all", k))} | {"undo": len(st[k]["history"]), "short": short(k), "paused": k in paused} | ({"frame": scene_frame(k)} if st[k]["effect"] == "scene" and show in ("all", k) else {}) | d | {"capabilities": capability(k), "untested": d.get("sku") in UNTESTED, "known": d.get("sku") in MODELS}
                                                for k, d in saved if k in st},
                                     "found": [{"id": k, "sku": d["sku"], "short": short(k)} for k, d in found.items() if k not in lights],
                                     "n": N, "phone": PHONE, "phone_ip": PHONE_IP, "version": VERSION, "claude": CLAUDE, "ask": ask_on, "untested": try_untested, "update": dict(update.settings(), version=APP_VERSION),
