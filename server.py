@@ -1091,7 +1091,7 @@ def set_try_untested(enabled):
 def forget_light(dev):
     with lock:
         if dev not in lights:
-            raise ValueError("unknown light")
+            raise ValueError("That light was removed. Reload the page.")
         for d in (lights, st, schedule, outside, observed, command_at, sent_at):
             d.pop(dev, None)
         paused.discard(dev)
@@ -1897,7 +1897,7 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"say": say, "changed": changed} | chat_view())
             keys = list(lights) if body.get("light") == "all" else [body.get("light")]
             if not keys or any(k not in st for k in keys):
-                return self.reply(400, {"error": "unknown light" if keys else "Set up a light first."})
+                return self.reply(400, {"error": "That light was removed. Reload the page." if lights else "Set up a light first."})
             if self.path == "/api/play-scene":
                 play_scene(keys, body.get("scene"))
                 return self.reply(200, {"ok": True})
@@ -1955,8 +1955,12 @@ class H(BaseHTTPRequestHandler):
         except (ValueError, TypeError, KeyError, OverflowError) as e:
             self.reply(400, {"error": str(e)})
         except Exception as e:  # never leave the phone hanging without an answer
-            blocked = sys.platform == "darwin" and getattr(e, "errno", None) == errno.EHOSTUNREACH
-            self.reply(500, {"error": LAN_BLOCKED if blocked else f"Server error: {e}"})
+            code = getattr(e, "errno", None)
+            print("error:", self.path, repr(e))
+            self.reply(500, {"error": LAN_BLOCKED if sys.platform == "darwin" and code == errno.EHOSTUNREACH
+                else "Another app is using Govee's LAN port 4002. Close it, then tap Scan again." if code == errno.EADDRINUSE
+                else "Can't reach your lights. Check this computer is on the same Wi-Fi, then tap Reconnect." if isinstance(e, OSError)
+                else "Something went wrong. Try again, or tap Send feedback in Settings."})
 
     def log_message(self, *a):
         pass

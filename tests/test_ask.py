@@ -356,9 +356,12 @@ class AskChecks(unittest.TestCase):
         thread.start()
         blocked = OSError(errno.EHOSTUNREACH, "No route to host")
         try:
-            for platform, expected in (("darwin", app.LAN_BLOCKED), ("linux", f"Server error: {blocked}")):
+            for platform, failure, expected in (("darwin", blocked, app.LAN_BLOCKED),
+                    ("linux", blocked, "Can't reach your lights. Check this computer is on the same Wi-Fi, then tap Reconnect."),
+                    ("linux", OSError(errno.EADDRINUSE, "Address in use"), "Another app is using Govee's LAN port 4002. Close it, then tap Scan again."),
+                    ("linux", RuntimeError("boom"), "Something went wrong. Try again, or tap Send feedback in Settings.")):
                 req = app.request.Request("http://127.0.0.1:8772/api/scan", data=b"{}", headers={"Content-Type": "application/json"})
-                with patch.object(app.sys, "platform", platform), patch.object(app, "discover", side_effect=blocked), \
+                with patch.object(app.sys, "platform", platform), patch.object(app, "discover", side_effect=failure), \
                         self.assertRaises(app.error.HTTPError) as caught:
                     app.request.urlopen(req)
                 with caught.exception as e:
