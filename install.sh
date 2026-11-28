@@ -95,6 +95,7 @@ main() {
   test -f "$tmp/app/server.py"
   "$py" -m py_compile "$tmp/app/server.py" "$tmp/app/launcher/launch.py" "$tmp/app/launcher/update.py" "$tmp/app/launcher/build.py"
   if [ "$update" = 0 ]; then
+    stop_lights  # stop first: a running app can delete .check-update mid-copy and fail cp
     if [ -d "$dir" ]; then
       cp -R "$dir" "$tmp/old"
       rm -f "$tmp/old/state.json" "$tmp/old/state.json.bad" "$tmp/old/.server.lock" "$tmp/old/lights.log"
@@ -104,7 +105,6 @@ main() {
     if [ -d "$HOME/Applications/Govee Lights.app" ]; then cp -R "$HOME/Applications/Govee Lights.app" "$tmp/mac-app"; fi
     if [ -f "$HOME/.local/share/applications/govee-lights.desktop" ]; then cp "$HOME/.local/share/applications/govee-lights.desktop" "$tmp/desktop"; fi
     stopped=1
-    stop_lights
   fi
   first=${PORT:-$(cat "$dir/.port" 2>/dev/null || echo 8765)}; port=$first
   while [ "$update" = 0 ] && "$py" -c 'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1)' "$port" 2>/dev/null; do

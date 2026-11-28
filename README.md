@@ -1,7 +1,5 @@
 # Govee Lights
 
-[![test](https://github.com/SaarthurR/govee-lights-app/actions/workflows/test.yml/badge.svg)](https://github.com/SaarthurR/govee-lights-app/actions/workflows/test.yml)
-
 Moving, bulb-by-bulb effects and smarter timers for Govee light strips, from your computer or any phone on your Wi-Fi. No cloud, no account.
 
 <img src="docs/desktop.png" width="800" alt="Govee Lights on a computer: Control, Themes, Scenes, Schedule and Settings tabs over the live bulbs, Ask Claude, colors and effects">
